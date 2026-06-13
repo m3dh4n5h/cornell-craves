@@ -141,3 +141,14 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# macOS
+.DS_Store
+
+# Local setup notes (never commit)
+NEXT_STEPS.md
+.env.local
+.env.*.local
+
+# Claude Code personal settings (machine-specific permissions/paths)
+.claude/settings.local.json

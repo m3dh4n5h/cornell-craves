@@ -1,0 +1,767 @@
+// Note: these are type aliases, not interfaces, on purpose. supabase-js
+// constrains table types to Record<string, unknown>, which interfaces fail
+// (no implicit index signature) and type aliases satisfy.
+
+export type DietaryTagId =
+  | "vegan"
+  | "vegetarian"
+  | "halal"
+  | "kosher"
+  | "gluten-free"
+  | "nut-free"
+  | "dairy-free";
+
+export type ListingItem = {
+  name: string;
+  price: number;
+  dietary_tags?: DietaryTagId[];
+};
+
+export type Club = {
+  id: string;
+  name: string;
+  email: string;
+  venmo: string | null;
+  zelle_phone: string | null;
+  approved: boolean;
+  created_at: string;
+};
+
+export type PickupType = "same_day_only" | "preorder_only" | "both";
+
+export type CampusLocation = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  description: string | null;
+  pickup_type: PickupType;
+  created_at: string;
+};
+
+export type Listing = {
+  id: string;
+  club_id: string;
+  brand: string;
+  title: string;
+  description: string | null;
+  items: ListingItem[];
+  pickup_info: string | null;
+  pickup_location_id: string | null;
+  avg_rating: number;
+  review_count: number;
+  expires_at: string;
+  active: boolean;
+  created_at: string;
+};
+
+export type ListingWithClub = Listing & {
+  clubs: Pick<Club, "name" | "venmo" | "zelle_phone"> | null;
+  campus_locations?: Pick<CampusLocation, "name" | "latitude" | "longitude" | "pickup_type"> | null;
+};
+
+export type Craving = {
+  id: string;
+  email: string;
+  brands: string[];
+  created_at: string;
+};
+
+export type NotificationLog = {
+  id: string;
+  craving_id: string;
+  listing_id: string;
+  sent_at: string;
+};
+
+export type PickupSlot = {
+  id: string;
+  listing_id: string;
+  start_time: string;
+  end_time: string;
+  max_reservations: number;
+  reserved_count: number;
+  created_at: string;
+};
+
+export type Reservation = {
+  id: string;
+  slot_id: string;
+  user_email: string;
+  user_name: string;
+  quantity: number;
+  dietary_notes: string | null;
+  confirmed: boolean;
+  attended: boolean;
+  created_at: string;
+};
+
+export type Review = {
+  id: string;
+  listing_id: string;
+  reviewer_email: string;
+  reviewer_name: string;
+  rating: number;
+  title: string;
+  body: string;
+  club_response: string | null;
+  response_date: string | null;
+  helpful_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QAEntry = {
+  id: string;
+  listing_id: string;
+  question_email: string;
+  question: string;
+  club_response: string | null;
+  response_date: string | null;
+  helpful_count: number;
+  created_at: string;
+};
+
+export type RecurringTemplate = {
+  id: string;
+  club_id: string;
+  name: string;
+  brand: string;
+  items: ListingItem[];
+  description: string | null;
+  frequency: "weekly" | "biweekly" | "monthly";
+  next_run_date: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type AnalyticsEvent = {
+  id: string;
+  listing_id: string;
+  club_id: string;
+  event_type: "view" | "venmo_click";
+  created_at: string;
+};
+
+export type UserPreferences = {
+  brands?: string[];
+  dietary?: DietaryTagId[];
+};
+
+export type UserProfile = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  cornell_netid: string | null;
+  cornell_email: string | null;
+  venmo_id: string | null;
+  zelle_id: string | null;
+  phone: string | null;
+  preferences_json: UserPreferences;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrderItem = {
+  name: string;
+  price: number;
+  qty: number;
+};
+
+export type PaymentMethod = "venmo" | "zelle" | "both";
+
+export type OrderStatus = "pending_payment" | "qr_sent" | "picked_up" | "cancelled";
+
+export type Order = {
+  id: string;
+  listing_id: string;
+  user_id: string | null;
+  orderer_name: string;
+  orderer_email: string;
+  orderer_netid: string | null;
+  items_json: OrderItem[];
+  total: number;
+  payment_method: PaymentMethod;
+  payment_details_json: { venmo?: string; zelle?: string };
+  payment_verified: boolean;
+  status: OrderStatus;
+  proxy_name: string | null;
+  proxy_email: string | null;
+  proxy_netid: string | null;
+  picked_up_by_name: string | null;
+  picked_up_by_email: string | null;
+  picked_up_at: string | null;
+  created_at: string;
+};
+
+export type OrderQRCode = {
+  id: string;
+  order_id: string;
+  user_type: "orderer" | "proxy";
+  qr_encrypted: string;
+  is_active: boolean;
+  scanned_at: string | null;
+  scanned_by_user_type: string | null;
+  created_at: string;
+};
+
+/** Order plus context, as returned by get_my_orders and the authed join. */
+export type MyOrder = Order & {
+  listing_title: string;
+  brand: string;
+  pickup_info: string | null;
+  location_name: string | null;
+  expires_at: string;
+  qr_codes: OrderQRCode[];
+};
+
+export type GroupStatus =
+  | "filling"
+  | "full"
+  | "payment_in_progress"
+  | "paid"
+  | "canceled"
+  | "reactivated";
+
+export type GroupMemberStatus = "invited" | "accepted" | "pending_payment" | "paid";
+
+export type OrderGroup = {
+  id: string;
+  listing_id: string;
+  item_name: string;
+  item_price: number;
+  split_type: number;
+  total_people: number;
+  filled_count: number;
+  deadline: string;
+  status: GroupStatus;
+  created_by: string;
+  created_at: string;
+};
+
+export type OrderGroupMember = {
+  id: string;
+  group_id: string;
+  user_id: string;
+  status: GroupMemberStatus;
+  qr_encrypted: string;
+  scanned_at: string | null;
+  created_at: string;
+};
+
+export type OrderGroupInvitation = {
+  id: string;
+  group_id: string;
+  invited_email: string | null;
+  invited_by_user_id: string;
+  status: "pending" | "accepted" | "declined";
+  invite_link_token: string;
+  created_at: string;
+};
+
+export type GroupMemberView = {
+  id: string;
+  user_id: string;
+  name: string;
+  status: GroupMemberStatus;
+  scanned_at: string | null;
+  is_creator: boolean;
+};
+
+/** Shape produced by the group_payload SQL helper (all group RPCs). */
+export type GroupDetails = OrderGroup & {
+  listing_title: string;
+  brand: string;
+  listing_active: boolean;
+  club_name: string;
+  club_venmo: string | null;
+  club_zelle: string | null;
+  share_amount: number;
+  open_token: string | null;
+  members: GroupMemberView[];
+  // Present depending on which RPC returned it:
+  my_status?: GroupMemberStatus;
+  my_member_id?: string;
+  my_qr?: string;
+  invite_token?: string;
+  invite_status?: "pending" | "accepted" | "declined";
+};
+
+/** Row shape returned by the get_my_reservations RPC. */
+export type MyReservation = {
+  id: string;
+  quantity: number;
+  dietary_notes: string | null;
+  confirmed: boolean;
+  attended: boolean;
+  created_at: string;
+  slot_id: string;
+  start_time: string;
+  end_time: string;
+  listing_id: string;
+  listing_title: string;
+  brand: string;
+  listing_active: boolean;
+  location_name: string | null;
+  club_name: string;
+  venmo: string | null;
+  zelle_phone: string | null;
+};
+
+type ClubInsert = {
+  id: string;
+  name: string;
+  email: string;
+  venmo?: string | null;
+  zelle_phone?: string | null;
+  approved?: boolean;
+  created_at?: string;
+};
+
+type ListingInsert = {
+  id?: string;
+  club_id: string;
+  brand: string;
+  title: string;
+  description?: string | null;
+  items?: ListingItem[];
+  pickup_info?: string | null;
+  pickup_location_id?: string | null;
+  avg_rating?: number;
+  review_count?: number;
+  expires_at: string;
+  active?: boolean;
+  created_at?: string;
+};
+
+type CravingInsert = {
+  id?: string;
+  email: string;
+  brands: string[];
+  created_at?: string;
+};
+
+type NotificationLogInsert = {
+  id?: string;
+  craving_id: string;
+  listing_id: string;
+  sent_at?: string;
+};
+
+type PickupSlotInsert = {
+  id?: string;
+  listing_id: string;
+  start_time: string;
+  end_time: string;
+  max_reservations: number;
+  reserved_count?: number;
+  created_at?: string;
+};
+
+type ReservationInsert = {
+  id?: string;
+  slot_id: string;
+  user_email: string;
+  user_name: string;
+  quantity: number;
+  dietary_notes?: string | null;
+  confirmed?: boolean;
+  attended?: boolean;
+  created_at?: string;
+};
+
+type ReviewInsert = {
+  id?: string;
+  listing_id: string;
+  reviewer_email: string;
+  reviewer_name: string;
+  rating: number;
+  title: string;
+  body: string;
+  club_response?: string | null;
+  response_date?: string | null;
+  helpful_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type QAInsert = {
+  id?: string;
+  listing_id: string;
+  question_email: string;
+  question: string;
+  club_response?: string | null;
+  response_date?: string | null;
+  helpful_count?: number;
+  created_at?: string;
+};
+
+type RecurringTemplateInsert = {
+  id?: string;
+  club_id: string;
+  name: string;
+  brand: string;
+  items?: ListingItem[];
+  description?: string | null;
+  frequency: "weekly" | "biweekly" | "monthly";
+  next_run_date?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+};
+
+type CampusLocationInsert = {
+  id?: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  description?: string | null;
+  pickup_type?: PickupType;
+  created_at?: string;
+};
+
+type UserProfileInsert = {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  cornell_netid?: string | null;
+  cornell_email?: string | null;
+  venmo_id?: string | null;
+  zelle_id?: string | null;
+  phone?: string | null;
+  preferences_json?: UserPreferences;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type OrderInsert = {
+  id?: string;
+  listing_id: string;
+  user_id?: string | null;
+  orderer_name: string;
+  orderer_email: string;
+  orderer_netid?: string | null;
+  items_json?: OrderItem[];
+  total: number;
+  payment_method: PaymentMethod;
+  payment_details_json?: { venmo?: string; zelle?: string };
+  payment_verified?: boolean;
+  status?: OrderStatus;
+  proxy_name?: string | null;
+  proxy_email?: string | null;
+  proxy_netid?: string | null;
+  picked_up_by_name?: string | null;
+  picked_up_by_email?: string | null;
+  picked_up_at?: string | null;
+  created_at?: string;
+};
+
+type OrderQRCodeInsert = {
+  id?: string;
+  order_id: string;
+  user_type: "orderer" | "proxy";
+  qr_encrypted?: string;
+  is_active?: boolean;
+  scanned_at?: string | null;
+  scanned_by_user_type?: string | null;
+  created_at?: string;
+};
+
+type AnalyticsEventInsert = {
+  id?: string;
+  listing_id: string;
+  club_id: string;
+  event_type: "view" | "venmo_click";
+  created_at?: string;
+};
+
+export type Database = {
+  public: {
+    Tables: {
+      clubs: {
+        Row: Club;
+        Insert: ClubInsert;
+        Update: Partial<ClubInsert>;
+        Relationships: [];
+      };
+      listings: {
+        Row: Listing;
+        Insert: ListingInsert;
+        Update: Partial<ListingInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "listings_club_id_fkey";
+            columns: ["club_id"];
+            isOneToOne: false;
+            referencedRelation: "clubs";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "listings_pickup_location_id_fkey";
+            columns: ["pickup_location_id"];
+            isOneToOne: false;
+            referencedRelation: "campus_locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cravings: {
+        Row: Craving;
+        Insert: CravingInsert;
+        Update: Partial<CravingInsert>;
+        Relationships: [];
+      };
+      notifications_log: {
+        Row: NotificationLog;
+        Insert: NotificationLogInsert;
+        Update: Partial<NotificationLogInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "notifications_log_craving_id_fkey";
+            columns: ["craving_id"];
+            isOneToOne: false;
+            referencedRelation: "cravings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_log_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pickup_slots: {
+        Row: PickupSlot;
+        Insert: PickupSlotInsert;
+        Update: Partial<PickupSlotInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "pickup_slots_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      reservations: {
+        Row: Reservation;
+        Insert: ReservationInsert;
+        Update: Partial<ReservationInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "reservations_slot_id_fkey";
+            columns: ["slot_id"];
+            isOneToOne: false;
+            referencedRelation: "pickup_slots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      reviews: {
+        Row: Review;
+        Insert: ReviewInsert;
+        Update: Partial<ReviewInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "reviews_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      qa: {
+        Row: QAEntry;
+        Insert: QAInsert;
+        Update: Partial<QAInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "qa_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      recurring_templates: {
+        Row: RecurringTemplate;
+        Insert: RecurringTemplateInsert;
+        Update: Partial<RecurringTemplateInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "recurring_templates_club_id_fkey";
+            columns: ["club_id"];
+            isOneToOne: false;
+            referencedRelation: "clubs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      campus_locations: {
+        Row: CampusLocation;
+        Insert: CampusLocationInsert;
+        Update: Partial<CampusLocationInsert>;
+        Relationships: [];
+      };
+      users_extended: {
+        Row: UserProfile;
+        Insert: UserProfileInsert;
+        Update: Partial<UserProfileInsert>;
+        Relationships: [];
+      };
+      orders: {
+        Row: Order;
+        Insert: OrderInsert;
+        Update: Partial<OrderInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "orders_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      order_qr_codes: {
+        Row: OrderQRCode;
+        Insert: OrderQRCodeInsert;
+        Update: Partial<OrderQRCodeInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "order_qr_codes_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      analytics_events: {
+        Row: AnalyticsEvent;
+        Insert: AnalyticsEventInsert;
+        Update: Partial<AnalyticsEventInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "analytics_events_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "analytics_events_club_id_fkey";
+            columns: ["club_id"];
+            isOneToOne: false;
+            referencedRelation: "clubs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: {
+      track_event: {
+        Args: { p_listing_id: string; p_event_type: "view" | "venmo_click" };
+        Returns: undefined;
+      };
+      create_reservation: {
+        Args: {
+          p_slot_id: string;
+          p_email: string;
+          p_name: string;
+          p_quantity: number;
+          p_dietary_notes?: string | null;
+        };
+        Returns: string;
+      };
+      cancel_reservation: {
+        Args: { p_reservation_id: string; p_email: string };
+        Returns: undefined;
+      };
+      confirm_reservation: {
+        Args: { p_reservation_id: string; p_email: string };
+        Returns: undefined;
+      };
+      get_my_reservations: {
+        Args: { p_email: string };
+        Returns: MyReservation[];
+      };
+      vote_review_helpful: {
+        Args: { p_review_id: string };
+        Returns: undefined;
+      };
+      vote_qa_helpful: {
+        Args: { p_qa_id: string };
+        Returns: undefined;
+      };
+      create_order: {
+        Args: {
+          p_listing_id: string;
+          p_name: string;
+          p_email: string;
+          p_netid: string | null;
+          p_items: { name: string; qty: number }[];
+          p_payment_method: PaymentMethod;
+          p_venmo?: string | null;
+          p_zelle?: string | null;
+          p_proxy_name?: string | null;
+          p_proxy_email?: string | null;
+          p_proxy_netid?: string | null;
+        };
+        Returns: string;
+      };
+      get_my_orders: {
+        Args: { p_email: string };
+        Returns: MyOrder[];
+      };
+      cancel_order: {
+        Args: { p_order_id: string; p_email: string };
+        Returns: undefined;
+      };
+      set_proxy_qr_active: {
+        Args: { p_order_id: string; p_email: string; p_active: boolean };
+        Returns: undefined;
+      };
+      create_order_group: {
+        Args: {
+          p_listing_id: string;
+          p_item_name: string;
+          p_split_type: number;
+          p_invited_emails?: string[];
+        };
+        Returns: { group_id: string; open_token: string };
+      };
+      accept_group_invite: {
+        Args: { p_token: string };
+        Returns: string;
+      };
+      decline_group_invite: {
+        Args: { p_token: string };
+        Returns: undefined;
+      };
+      get_group_by_token: {
+        Args: { p_token: string };
+        Returns: GroupDetails | null;
+      };
+      get_my_groups: {
+        Args: Record<string, never>;
+        Returns: GroupDetails[];
+      };
+      get_my_group_invites: {
+        Args: Record<string, never>;
+        Returns: GroupDetails[];
+      };
+      get_club_groups: {
+        Args: Record<string, never>;
+        Returns: GroupDetails[];
+      };
+    };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+};

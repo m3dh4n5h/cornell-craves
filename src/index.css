@@ -1,0 +1,281 @@
+@import "tailwindcss";
+
+/*
+ * Cabinet Grotesk is a Fontshare font (not available on Fontsource), so it is
+ * self-hosted from public/fonts. The 700 weight is preloaded in index.html.
+ */
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/fonts/cabinet-grotesk-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/fonts/cabinet-grotesk-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/fonts/cabinet-grotesk-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/fonts/cabinet-grotesk-800.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  /* ---- Color: committed saffron ---- */
+  --color-primary: oklch(72% 0.19 75);
+  --color-primary-dark: oklch(60% 0.17 72);
+  --color-accent: oklch(55% 0.14 25);
+  --color-ink: oklch(18% 0.02 260);
+  --color-ink-muted: oklch(45% 0.02 260);
+  --color-surface: oklch(97% 0.008 85);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-border: oklch(88% 0.01 85);
+
+  /* Text guaranteed readable on saffron / chili, in both themes */
+  --color-on-primary: oklch(18% 0.02 260);
+  --color-on-accent: oklch(98% 0.005 85);
+
+  /* Brand tile tints, assigned deterministically by brand name hash */
+  --color-tint-1: oklch(89% 0.07 75);
+  --color-tint-2: oklch(89% 0.06 25);
+  --color-tint-3: oklch(89% 0.07 140);
+  --color-tint-4: oklch(89% 0.06 210);
+  --color-tint-5: oklch(89% 0.05 280);
+  --color-tint-6: oklch(89% 0.06 340);
+
+  /* Dietary tag colors: icon + color pairs, never color alone */
+  --color-tag-green: oklch(88% 0.09 150);
+  --color-tag-amber: oklch(89% 0.09 85);
+  --color-tag-rust: oklch(85% 0.07 45);
+  --color-tag-blue: oklch(89% 0.06 230);
+  --color-tag-violet: oklch(89% 0.06 300);
+  --color-tag-wheat: oklch(90% 0.07 95);
+
+  /* ---- Type ---- */
+  --font-display: "Cabinet Grotesk", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Epilogue", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  --text-xs: clamp(0.75rem, 1.5vw, 0.875rem);
+  --text-xs--line-height: 1.5;
+  --text-sm: clamp(0.875rem, 1.8vw, 1rem);
+  --text-sm--line-height: 1.55;
+  --text-base: clamp(1rem, 2vw, 1.125rem);
+  --text-base--line-height: 1.65;
+  --text-lg: clamp(1.125rem, 2.5vw, 1.375rem);
+  --text-lg--line-height: 1.45;
+  --text-xl: clamp(1.375rem, 3vw, 1.75rem);
+  --text-xl--line-height: 1.25;
+  --text-2xl: clamp(1.75rem, 4vw, 2.5rem);
+  --text-2xl--line-height: 1.1;
+  --text-3xl: clamp(2.25rem, 6vw, 3.5rem);
+  --text-3xl--line-height: 1.1;
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ---- Semantic z-index scale. Never use raw numbers in components. ---- */
+:root {
+  --z-raised: 10;
+  --z-nav: 20;
+  --z-overlay: 30;
+  --z-sheet: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  /* The app is deliberately light-locked (one page theme, no inversions). */
+  color-scheme: light;
+}
+
+@utility z-raised {
+  z-index: var(--z-raised);
+}
+@utility z-nav {
+  z-index: var(--z-nav);
+}
+@utility z-overlay {
+  z-index: var(--z-overlay);
+}
+@utility z-sheet {
+  z-index: var(--z-sheet);
+}
+@utility z-modal {
+  z-index: var(--z-modal);
+}
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+
+/* Hover effects only on devices that actually hover with a precise pointer. */
+@custom-variant hover-fine {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    line-height: 1.2;
+  }
+
+  p {
+    text-wrap: pretty;
+    max-width: 65ch;
+  }
+
+  ::selection {
+    background-color: var(--color-primary);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary-dark);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---- Leaflet map (campus map page) ---- */
+/* The wrapper is isolated so Leaflet's internal z-indexes (200-700) never
+   escape into the page's semantic scale. */
+.craves-map {
+  isolation: isolate;
+}
+.craves-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-body);
+  background-color: var(--color-surface);
+}
+
+/* Custom saffron map pin (used via L.divIcon in MapPin.tsx) */
+.craves-pin-wrapper {
+  background: transparent;
+  border: none;
+}
+.craves-pin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+  border: 2px solid var(--color-surface-raised);
+  box-shadow: 0 2px 8px oklch(18% 0.02 260 / 0.25);
+  transition: transform 100ms var(--ease-out);
+}
+.craves-pin-type {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background-color: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-ink-muted);
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 700;
+}
+.craves-pin::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--color-primary);
+}
+@media (hover: hover) and (pointer: fine) {
+  .craves-pin:hover {
+    transform: scale(1.1);
+  }
+}
+.craves-pin-active {
+  transform: scale(1.15);
+  background-color: var(--color-ink);
+  color: var(--color-surface-raised);
+}
+.craves-pin-active::after {
+  border-top-color: var(--color-ink);
+}
+.craves-pin-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background-color: var(--color-accent);
+  color: var(--color-surface-raised);
+  font-size: 11px;
+  font-weight: 700;
+}
