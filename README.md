@@ -2,9 +2,7 @@
 
 # Cornell Craves
 
-### Campus food fundraiser discovery. Order together. Share costs.
-
-Cornell student clubs run food fundraisers like real storefronts: post drops, take orders, verify payments, and scan QR passes at pickup. Students discover food on a feed or campus map, order solo or split an item with friends, and get everything by email.
+### The food you're craving, brought to campus — by clubs, for students.
 
 Built with React + Vite + Tailwind v4 + Supabase. Payments go directly to clubs over Venmo and Zelle; Cornell Craves never touches money.
 
@@ -12,7 +10,23 @@ Built with React + Vite + Tailwind v4 + Supabase. Payments go directly to clubs 
 
 ---
 
-## Student experience
+## Why Cornell Craves exists
+
+Ithaca isn't a big food town. The options near campus are limited, and the brands students actually crave — an In-N-Out run, Texas Roadhouse rolls, a viral bakery drop — either aren't in Ithaca at all, or they're a cross-town trek nobody wants to make between classes. Getting there is a hassle, so the craving just goes unanswered.
+
+Meanwhile, the people who *could* bring that food to campus — student clubs raising money — have no good way to reach hungry students at the exact moment they're hungry.
+
+**Cornell Craves closes that gap.** Clubs run food fundraisers like real storefronts: they bring in sought-after brands, post a "drop," take orders, verify payment, and hand food off with a scannable QR pass at pickup. Students get one feed (and a campus map) of every drop happening around them, set alerts for the brands they crave so they hear about new drops the moment they land, order solo or split an item with friends, and get everything confirmed by email.
+
+Clubs raise money. Students finally get the food they actually want — without leaving campus.
+
+> **Money never flows through the app.** Students pay clubs directly over Venmo or Zelle. Cornell Craves is a discovery and ordering layer, not a payment processor.
+
+---
+
+## For students
+
+Crave it, find it, grab it — all from your phone. Browse a live feed or campus map of every drop, follow your favorite brands for instant alerts, read real reviews, and order in a few taps. Split a pricey item with friends, then show your QR pass at pickup.
 
 | Feed | Listing | Reviews |
 |---|---|---|
@@ -34,7 +48,9 @@ Built with React + Vite + Tailwind v4 + Supabase. Payments go directly to clubs 
 | ![Map](docs/screenshots/student-map.png) | ![Pickups](docs/screenshots/student-reservations.png) | ![Account](docs/screenshots/student-account.png) |
 | Saffron pins, pickup-type badges, dietary filters. | Upcoming and past reservations, confirm attendance. | Profile, saved payment handles, brand + dietary prefs. |
 
-## Club experience
+## For clubs
+
+Run your fundraiser like a real storefront — no spreadsheets, no DMs. Post a drop, take orders, verify Venmo/Zelle payments, scan passes at pickup, and watch what's working with built-in analytics. Save a winning fundraiser as a template and repost it in two clicks.
 
 | Sign in (Student / Club) | Club dashboard | Orders + scanner |
 |---|---|---|
@@ -50,39 +66,39 @@ Built with React + Vite + Tailwind v4 + Supabase. Payments go directly to clubs 
 
 ---
 
-## Feature checklist
+## Everything it does
 
-**Discovery (v1)**
+**Discovery & alerts**
 - [x] Live feed with debounced brand filter, skeletons, staggered cards, virtualization past 50 items
 - [x] Listing pages with Venmo deep links and Zelle copy
 - [x] Club registration, admin approval, club dashboard
-- [x] Craving brand alerts by email
+- [x] Craving brand alerts by email — students hear about new drops the moment they land
 
-**Marketplace (v2)**
+**Marketplace & scheduling**
 - [x] Pickup scheduling with capacity-limited slots
 - [x] Reviews (immutable, one per person, club responses) and anonymous Q&A
 - [x] Campus map (Leaflet + CARTO tiles, custom pins)
 - [x] Club analytics (trend, CTR, fill rate, ratings, peak-hours heatmap, dietary mix)
 - [x] Recurring fundraiser templates
 
-**Orders + QR pickup (v3)**
+**Orders & QR pickup**
 - [x] Google sign-in, NetID onboarding, saved payment details
 - [x] Order flow with server-authoritative pricing, proxy pickup, review modal
 - [x] HMAC-signed QR passes emailed after the club verifies payment
 - [x] Club orders dashboard: verify, filter, CSV export, camera QR scanner
 - [x] Mobile app shell with bottom tabs, allergen icons
 
-**Order splitting + Google-only auth (v4)**
+**Order splitting & sign-in**
 - [x] Split an item 2 to 4 ways: invite links, email invites, live member status
 - [x] 24-hour payment deadlines with color-shifting timers
 - [x] Per-member QR passes, auto-cancel past deadline, club reactivation
 - [x] Student / Club portal toggle, passwordless club onboarding
 - [x] Light-locked theme, refreshed brand list, pickup-type map badges
 
-**Security + production hardening (v4.1)**
+**Security & production hardening**
 - [x] All email-keyed RPCs locked to the authenticated owner (see `SECURITY_AUDIT.md`)
 - [x] Orders and reservations require a signed-in Google account
-- [x] OWASP security headers + strict CSP (`vercel.json`)
+- [x] OWASP security headers + strict CSP (`public/_headers` for Cloudflare, `vercel.json` for Vercel)
 - [x] Terms and liability disclaimer, payments-direct-to-clubs messaging
 - [x] Hot-path indexes and caching for high traffic
 
@@ -90,7 +106,7 @@ Built with React + Vite + Tailwind v4 + Supabase. Payments go directly to clubs 
 
 ## Tech stack
 
-React 18 + Vite + TypeScript, Tailwind v4 (CSS-first tokens), customized shadcn-style components, Framer Motion, Leaflet + OpenStreetMap, Recharts, qrcode, Supabase (Postgres + Auth + Edge Functions), Resend, Vercel.
+React 18 + Vite + TypeScript, Tailwind v4 (CSS-first tokens), customized shadcn-style components, Framer Motion, Leaflet + OpenStreetMap, Recharts, qrcode, Supabase (Postgres + Auth + Edge Functions), Resend, Cloudflare Pages.
 
 ## Quick start
 

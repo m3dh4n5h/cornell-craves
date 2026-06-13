@@ -17,9 +17,10 @@
 //    slot. Caller must be signed in as the club that owns the slot's listing.
 //
 // Secrets (set with `supabase secrets set`):
-//   RESEND_API_KEY  required
+//   BREVO_API_KEY   required (Brevo transactional email; https://app.brevo.com -> SMTP & API)
 //   SITE_URL        optional, defaults to http://localhost:5173
-//   FROM_EMAIL      optional, defaults to Resend's onboarding sender
+//   FROM_EMAIL      required for real sending; must be a Brevo-verified sender,
+//                   in the form "Cornell Craves <you@yourdomain.com>"
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -76,9 +77,9 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "http://localhost:5173").replace(/\/+$/, "");
-const FROM_EMAIL = Deno.env.get("FROM_EMAIL") ?? "Cornell Craves <onboarding@resend.dev>";
+const FROM_EMAIL = Deno.env.get("FROM_EMAIL") ?? "Cornell Craves <no-reply@example.com>";
 const QR_SECRET = Deno.env.get("QR_SECRET") ?? "";
 
 function escapeHtml(value: string): string {
@@ -94,17 +95,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Parse a "Name <email@domain>" string (or a plain address) into Brevo's
+// sender shape. Brevo wants name and email as separate fields.
+function parseSender(value: string): { name: string; email: string } {
+  const match = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (match) {
+    return { name: match[1] || "Cornell Craves", email: match[2].trim() };
+  }
+  return { name: "Cornell Craves", email: value.trim() };
+}
+
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "api-key": BREVO_API_KEY,
       "Content-Type": "application/json",
+      accept: "application/json",
     },
-    body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
+    body: JSON.stringify({
+      sender: parseSender(FROM_EMAIL),
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
   });
   if (!response.ok) {
-    throw new Error(`Resend responded ${response.status}: ${await response.text()}`);
+    throw new Error(`Brevo responded ${response.status}: ${await response.text()}`);
   }
 }
 
@@ -777,7 +794,7 @@ async function notifyCravings(listing: ListingRecord): Promise<{ sent: number }>
       // One bad address should not block the rest of the queue.
       console.error(`Failed to notify ${craving.email}:`, error);
     }
-    // Stay under Resend's default rate limit.
+    // Stay under Brevo's send rate limit.
     await sleep(550);
   }
   return { sent };
