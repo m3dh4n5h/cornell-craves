@@ -49,7 +49,6 @@ export default function Preferences() {
   const save = async () => {
     if (!user) return;
     setSubmitting(true);
-    const email = (profile?.cornell_email || user.email || "").toLowerCase();
 
     const { error: profileError } = await supabase
       .from("users_extended")
@@ -57,9 +56,10 @@ export default function Preferences() {
       .eq("id", user.id);
 
     // Brand picks double as craving alerts, so drops you care about hit your inbox.
+    // Saved via a SECURITY DEFINER RPC keyed to your authenticated email.
     const { error: cravingError } =
-      email && brands.length > 0
-        ? await supabase.from("cravings").upsert({ email, brands }, { onConflict: "email" })
+      brands.length > 0
+        ? await supabase.rpc("upsert_my_craving", { p_brands: brands })
         : { error: null };
 
     setSubmitting(false);

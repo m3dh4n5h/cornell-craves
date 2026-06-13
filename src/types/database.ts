@@ -669,6 +669,10 @@ export type Database = {
         Args: { p_listing_id: string; p_event_type: "view" | "venmo_click" };
         Returns: undefined;
       };
+      upsert_my_craving: {
+        Args: { p_brands: string[] };
+        Returns: undefined;
+      };
       create_reservation: {
         Args: {
           p_slot_id: string;

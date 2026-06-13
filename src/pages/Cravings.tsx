@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { BellRing, Check } from "lucide-react";
@@ -23,7 +23,12 @@ export default function Cravings() {
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState<string[] | null>(null);
 
-  // v4: craving subscriptions require a Google student account.
+  // Alerts go to your account email; prefill and lock the field.
+  useEffect(() => {
+    if (user?.email) setEmail((previous) => previous || user.email!);
+  }, [user]);
+
+  // Craving subscriptions require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
     return <Navigate to="/login" replace />;
   }
@@ -45,9 +50,7 @@ export default function Cravings() {
     if (emailError || brandsError) return;
 
     setSubmitting(true);
-    const { error } = await supabase
-      .from("cravings")
-      .upsert({ email: email.trim().toLowerCase(), brands: selected }, { onConflict: "email" });
+    const { error } = await supabase.rpc("upsert_my_craving", { p_brands: selected });
     setSubmitting(false);
 
     if (error) {
@@ -101,8 +104,8 @@ export default function Cravings() {
             id="email"
             type="email"
             value={email}
+            readOnly
             invalid={showErrors && Boolean(emailError)}
-            onChange={(e) => setEmail(e.target.value)}
             placeholder="netid@cornell.edu"
             autoComplete="email"
           />
