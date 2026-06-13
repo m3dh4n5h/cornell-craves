@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Check, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { DietaryTagId } from "@/types/database";
+import type { Club, DietaryTagId } from "@/types/database";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -36,6 +36,8 @@ export default function AccountSettings() {
   const [hydrated, setHydrated] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [unsubscribing, setUnsubscribing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!profile || hydrated) return;
@@ -81,7 +83,7 @@ export default function AccountSettings() {
     );
   }
 
-  if (!clubLoading && club) return <Navigate to="/dashboard" replace />;
+  if (!clubLoading && club) return <ClubAccount club={club} />;
 
   if (authLoading || profileLoading || !hydrated) {
     return (
@@ -139,8 +141,8 @@ export default function AccountSettings() {
     });
 
     const { error: cravingError } =
-      email && brands.length > 0
-        ? await supabase.from("cravings").upsert({ email, brands }, { onConflict: "email" })
+      brands.length > 0
+        ? await supabase.rpc("upsert_my_craving", { p_brands: brands })
         : { error: null };
 
     setSubmitting(false);
@@ -150,6 +152,35 @@ export default function AccountSettings() {
     }
     toast.success("Account updated");
     await refetch();
+  };
+
+  const unsubscribeCravings = async () => {
+    setUnsubscribing(true);
+    const { error } = await supabase.rpc("delete_my_craving");
+    setUnsubscribing(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setBrands([]);
+    toast.success("You're off the craving mailing list. No more drop emails.");
+  };
+
+  const deleteAccount = async () => {
+    const ok = window.confirm(
+      "Delete your account? This removes your profile, orders, pickups, and craving alerts, and stops every notification. This cannot be undone.",
+    );
+    if (!ok) return;
+    setDeleting(true);
+    const { error } = await supabase.rpc("delete_my_account");
+    if (error) {
+      setDeleting(false);
+      toast.error(error.message);
+      return;
+    }
+    await signOut();
+    toast.success("Account deleted");
+    navigate("/");
   };
 
   return (
@@ -331,6 +362,224 @@ export default function AccountSettings() {
           Save changes
         </Button>
       </form>
+
+      <div className="mt-8 rounded-2xl border border-border bg-surface-raised p-4">
+        <p className="text-sm font-bold text-ink">Craving alerts</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Stop all craving emails and remove yourself from the mailing list. You can re-add
+          brands anytime above.
+        </p>
+        <Button
+          variant="secondary"
+          className="mt-3 w-full"
+          loading={unsubscribing}
+          onClick={unsubscribeCravings}
+        >
+          Unsubscribe from craving alerts
+        </Button>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-accent/40 p-4">
+        <p className="text-sm font-bold text-ink">Delete account</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Permanently removes your profile, orders, pickups, and craving alerts, and stops
+          every notification. You can always sign up again later.
+        </p>
+        <Button variant="secondary" className="mt-3 w-full" loading={deleting} onClick={deleteAccount}>
+          Delete my account
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Account page for club owners: payout handles, change disclaimer, deletion. */
+function ClubAccount({ club }: { club: Club }) {
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
+  const [venmo, setVenmo] = useState(club.venmo ?? "");
+  const [zelle, setZelle] = useState(club.zelle_phone ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [needsConsent, setNeedsConsent] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const normalizedVenmo = venmo.trim().replace(/^@/, "");
+  const normalizedZelle = zelle.trim();
+  const changed =
+    normalizedVenmo !== (club.venmo ?? "") || normalizedZelle !== (club.zelle_phone ?? "");
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!changed) {
+      toast.success("No changes to save");
+      return;
+    }
+
+    // If a drop is live, buyers may already hold the old handle. Require the
+    // club to accept responsibility for both before anything changes.
+    const { count } = await supabase
+      .from("listings")
+      .select("id", { count: "exact", head: true })
+      .eq("club_id", club.id)
+      .eq("active", true)
+      .gt("expires_at", new Date().toISOString());
+    const hasActive = (count ?? 0) > 0;
+
+    if (hasActive && !consent) {
+      setNeedsConsent(true);
+      return;
+    }
+
+    setSubmitting(true);
+    const { error } = await supabase
+      .from("clubs")
+      .update({ venmo: normalizedVenmo || null, zelle_phone: normalizedZelle || null })
+      .eq("id", club.id);
+
+    // Stamp live listings so buyers see a reconfirm-your-handle notice.
+    const { error: listingError } = hasActive
+      ? await supabase
+          .from("listings")
+          .update({ payment_updated_at: new Date().toISOString() })
+          .eq("club_id", club.id)
+          .eq("active", true)
+      : { error: null };
+
+    setSubmitting(false);
+    if (error || listingError) {
+      toast.error((error ?? listingError)!.message);
+      return;
+    }
+    setNeedsConsent(false);
+    setConsent(false);
+    toast.success(
+      hasActive
+        ? "Payment details updated. Your live drops now show a reconfirm notice."
+        : "Club account updated",
+    );
+  };
+
+  const deleteAccount = async () => {
+    const ok = window.confirm(
+      "Delete your club account? This permanently removes your club, all its drops, and stops every notification. This cannot be undone.",
+    );
+    if (!ok) return;
+    setDeleting(true);
+    const { error } = await supabase.rpc("delete_my_account");
+    if (error) {
+      setDeleting(false);
+      toast.error(error.message);
+      return;
+    }
+    await signOut();
+    toast.success("Account deleted");
+    navigate("/");
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast.success("Signed out");
+    navigate("/");
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md px-4 py-10">
+      <h1 className="text-2xl font-extrabold tracking-tight">Club account</h1>
+      <p className="mt-2 text-sm text-ink-muted">
+        Manage how buyers pay you. Post drops and review orders from your{" "}
+        <button
+          type="button"
+          className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
+          onClick={() => navigate("/dashboard")}
+        >
+          Dashboard
+        </button>
+        .
+      </p>
+
+      <div className="mt-6 rounded-2xl border border-border bg-surface-raised p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Club</p>
+        <p className="mt-1 text-lg font-bold">{club.name}</p>
+        <p className="text-sm text-ink-muted">{club.email}</p>
+      </div>
+
+      <form onSubmit={save} className="mt-6 space-y-4">
+        <div>
+          <Label htmlFor="club-venmo">Venmo handle</Label>
+          <Input
+            id="club-venmo"
+            value={venmo}
+            onChange={(e) => {
+              setVenmo(e.target.value);
+              setNeedsConsent(false);
+              setConsent(false);
+            }}
+            placeholder="club-venmo"
+          />
+        </div>
+        <div>
+          <Label htmlFor="club-zelle">Zelle (phone or email)</Label>
+          <Input
+            id="club-zelle"
+            value={zelle}
+            onChange={(e) => {
+              setZelle(e.target.value);
+              setNeedsConsent(false);
+              setConsent(false);
+            }}
+            placeholder="Optional"
+          />
+        </div>
+
+        {needsConsent && (
+          <div className="rounded-2xl border border-accent/40 bg-accent/10 p-4">
+            <p className="text-sm font-semibold text-ink">You have a live drop right now.</p>
+            <p className="mt-1 text-sm text-ink-muted">
+              Buyers may already have your previous handle. You — not Cornell Craves — are
+              solely responsible for any funds sent to either the old or the new Venmo/Zelle,
+              and for reconciling payments across both. Cornell Craves only displays the
+              details you provide and never holds, processes, or transfers money. Your live
+              drops will show a notice telling buyers to reconfirm your handle.
+            </p>
+            <label className="mt-3 flex items-start gap-2 text-sm font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                className="mt-0.5 size-4"
+              />
+              I understand and accept sole responsibility for funds in both my old and new
+              payment accounts.
+            </label>
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full"
+          loading={submitting}
+          disabled={needsConsent && !consent}
+        >
+          Save changes
+        </Button>
+      </form>
+
+      <Button variant="ghost" className="mt-4 w-full" onClick={handleSignOut}>
+        Sign out
+      </Button>
+
+      <div className="mt-8 rounded-2xl border border-accent/40 p-4">
+        <p className="text-sm font-bold text-ink">Delete account</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Permanently removes your club, all its drops, and stops every notification. You can
+          always sign up again later.
+        </p>
+        <Button variant="secondary" className="mt-3 w-full" loading={deleting} onClick={deleteAccount}>
+          Delete club account
+        </Button>
+      </div>
     </div>
   );
 }

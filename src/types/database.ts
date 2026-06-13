@@ -53,6 +53,7 @@ export type Listing = {
   expires_at: string;
   active: boolean;
   created_at: string;
+  payment_updated_at: string | null;
 };
 
 export type ListingWithClub = Listing & {
@@ -332,6 +333,7 @@ type ListingInsert = {
   expires_at: string;
   active?: boolean;
   created_at?: string;
+  payment_updated_at?: string | null;
 };
 
 type CravingInsert = {
@@ -671,6 +673,14 @@ export type Database = {
       };
       upsert_my_craving: {
         Args: { p_brands: string[] };
+        Returns: undefined;
+      };
+      delete_my_craving: {
+        Args: Record<string, never>;
+        Returns: undefined;
+      };
+      delete_my_account: {
+        Args: Record<string, never>;
         Returns: undefined;
       };
       create_reservation: {

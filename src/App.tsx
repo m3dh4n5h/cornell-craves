@@ -95,11 +95,44 @@ function OnboardingGate() {
   return null;
 }
 
+// Routes a club owner may never see (consumer pages). Feed ("/") is handled
+// separately as an exact match.
+const CLUB_BLOCKED_PREFIXES = ["/map", "/cravings", "/orders", "/reservations"];
+
+/**
+ * Keeps the two roles apart: club owners are confined to their Dashboard,
+ * Account, and club-management pages; students never see the club Dashboard or
+ * club tools.
+ */
+function RoleGate() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { club, loading: clubLoading } = useClub();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (authLoading || clubLoading) return;
+    const path = location.pathname;
+    if (club) {
+      const blocked =
+        path === "/" || CLUB_BLOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
+      if (blocked) navigate("/dashboard", { replace: true });
+    } else if (user && !isAdmin) {
+      if (path === "/dashboard" || path.startsWith("/club/")) {
+        navigate("/", { replace: true });
+      }
+    }
+  }, [authLoading, clubLoading, club, user, isAdmin, location.pathname, navigate]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
         <OnboardingGate />
+        <RoleGate />
         <div className="flex min-h-dvh flex-col pb-14 md:pb-0">
           <Navbar />
           <main className="flex-1">

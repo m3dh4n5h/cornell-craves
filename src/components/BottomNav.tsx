@@ -7,40 +7,52 @@ import {
   Ticket,
   UserRound,
   LayoutDashboard,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { cn } from "@/lib/utils";
 
 type Tab = { to: string; label: string; Icon: LucideIcon; end?: boolean };
 
-// Shared consumer destinations. Clubs get these too (they can browse, crave,
-// order and pick up like anyone), plus their Dashboard in the last slot.
-const BASE_TABS: Tab[] = [
+// Students (and signed-out visitors) get the consumer tabs.
+const STUDENT_TABS: Tab[] = [
   { to: "/", label: "Feed", Icon: Flame, end: true },
   { to: "/map", label: "Map", Icon: MapPinned },
   { to: "/cravings", label: "Cravings", Icon: BellRing },
   { to: "/orders", label: "Orders", Icon: ReceiptText },
   { to: "/reservations", label: "Pickups", Icon: Ticket },
+  { to: "/account/settings", label: "Account", Icon: UserRound },
 ];
+
+// Admins see everything students do, plus the Admin console.
+const ADMIN_TABS: Tab[] = [...STUDENT_TABS, { to: "/admin", label: "Admin", Icon: ShieldCheck }];
+
+// Club owners only manage their club: Dashboard + Account.
+const CLUB_TABS: Tab[] = [
+  { to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { to: "/account/settings", label: "Account", Icon: UserRound },
+];
+
+const GRID_COLS: Record<number, string> = {
+  2: "grid-cols-2",
+  6: "grid-cols-6",
+  7: "grid-cols-7",
+};
 
 /** Mobile app-shell tabs. Hidden at md+, where the top nav takes over. */
 export function BottomNav() {
+  const { isAdmin } = useAuth();
   const { club } = useClub();
-
-  // Clubs manage from the Dashboard and have no student Account page; everyone
-  // else gets Account in the final slot.
-  const lastTab: Tab = club
-    ? { to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard }
-    : { to: "/account/settings", label: "Account", Icon: UserRound };
-  const tabs = [...BASE_TABS, lastTab];
+  const tabs = club ? CLUB_TABS : isAdmin ? ADMIN_TABS : STUDENT_TABS;
 
   return (
     <nav
       className="z-nav fixed inset-x-0 bottom-0 border-t border-border bg-surface-raised/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       aria-label="Primary"
     >
-      <div className="grid grid-cols-6">
+      <div className={cn("grid", GRID_COLS[tabs.length])}>
         {tabs.map(({ to, label, Icon, end }) => (
           <NavLink
             key={to}

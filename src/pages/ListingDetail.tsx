@@ -84,6 +84,14 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
           Order items
         </Button>
       </Link>
+      {listing.payment_updated_at && (
+        <div className="mt-4 rounded-xl border border-accent/40 bg-accent/10 p-3 text-sm text-ink">
+          <span className="font-semibold">Payment handle recently updated.</span> This club
+          changed its Venmo/Zelle after this drop was posted. Confirm the current handle with the
+          club before sending money — Cornell Craves only displays club-provided details and is not
+          responsible for payments sent to an outdated or incorrect handle.
+        </div>
+      )}
       <div className="mt-2">
         <VenmoButton
           handle={listing.clubs?.venmo ?? null}

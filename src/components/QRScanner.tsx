@@ -48,10 +48,22 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
   // Always stop the camera when the component unmounts.
   useEffect(() => stopCamera, []);
 
-  // Decode loop: prefer BarcodeDetector, fall back to jsQR on a canvas frame.
+  // Once `scanning` is true the <video> is mounted, so we attach the stream
+  // HERE (not in startCamera, where the element doesn't exist yet) and then run
+  // the decode loop. Attaching before render is what left the screen black.
   useEffect(() => {
     if (!scanning) return;
     let cancelled = false;
+
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true"); // iOS Safari: stay inline
+      void video.play().catch(() => {
+        /* autoplay may reject; muted+playsinline normally allows it */
+      });
+    }
 
     const detector =
       typeof window !== "undefined" && window.BarcodeDetector
@@ -65,21 +77,21 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
 
     const tick = async () => {
       if (cancelled) return;
-      const video = videoRef.current;
-      if (video && video.readyState >= 2 && video.videoWidth > 0) {
+      const v = videoRef.current;
+      if (v && v.readyState >= 2 && v.videoWidth > 0) {
         try {
           if (detector) {
-            const codes = await detector.detect(video);
+            const codes = await detector.detect(v);
             const token = codes[0]?.rawValue?.trim();
             if (token) return handleToken(token);
           } else {
             const canvas = canvasRef.current;
             if (canvas) {
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
+              canvas.width = v.videoWidth;
+              canvas.height = v.videoHeight;
               const ctx = canvas.getContext("2d", { willReadFrequently: true });
               if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
                 const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const result = jsQR(image.data, image.width, image.height, {
                   inversionAttempts: "dontInvert",
@@ -116,13 +128,7 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
       }
       streamRef.current = stream;
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        video.setAttribute("playsinline", "true"); // iOS Safari: stay inline
-        await video.play();
-      }
-      setScanning(true);
+      setScanning(true); // mounts the <video>; the effect above attaches the stream
     } catch {
       setCameraError(
         "Couldn't open the camera. Allow camera access in your browser settings, or paste the code below.",
