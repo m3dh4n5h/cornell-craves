@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import jsQR from "jsqr";
 import { Camera, CameraOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,18 +26,18 @@ interface QRScannerProps {
 }
 
 /**
- * Camera scanner built on the native BarcodeDetector API (Chrome and Android,
- * which covers a club member's phone at a pickup table), with a paste-the-code
- * fallback that works everywhere.
+ * Camera scanner that works across browsers. Uses the native BarcodeDetector
+ * API where available (Chrome/Edge/Android — fast), and falls back to jsQR
+ * decoding of canvas frames everywhere else, including Safari on macOS and iOS
+ * — which has no BarcodeDetector. A paste-the-code field is the final fallback.
  */
 export function QRScanner({ onToken, busy = false }: QRScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualToken, setManualToken] = useState("");
-
-  const supportsDetector = typeof window !== "undefined" && Boolean(window.BarcodeDetector);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -44,30 +45,55 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
     setScanning(false);
   };
 
+  // Always stop the camera when the component unmounts.
   useEffect(() => stopCamera, []);
 
+  // Decode loop: prefer BarcodeDetector, fall back to jsQR on a canvas frame.
   useEffect(() => {
-    if (!scanning || !supportsDetector) return;
+    if (!scanning) return;
     let cancelled = false;
-    const detector = new window.BarcodeDetector!({ formats: ["qr_code"] });
+
+    const detector =
+      typeof window !== "undefined" && window.BarcodeDetector
+        ? new window.BarcodeDetector({ formats: ["qr_code"] })
+        : null;
+
+    const handleToken = (token: string) => {
+      stopCamera();
+      onToken(token);
+    };
 
     const tick = async () => {
       if (cancelled) return;
       const video = videoRef.current;
-      if (video && video.readyState >= 2) {
+      if (video && video.readyState >= 2 && video.videoWidth > 0) {
         try {
-          const codes = await detector.detect(video);
-          const token = codes[0]?.rawValue?.trim();
-          if (token) {
-            stopCamera();
-            onToken(token);
-            return;
+          if (detector) {
+            const codes = await detector.detect(video);
+            const token = codes[0]?.rawValue?.trim();
+            if (token) return handleToken(token);
+          } else {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              const ctx = canvas.getContext("2d", { willReadFrequently: true });
+              if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const result = jsQR(image.data, image.width, image.height, {
+                  inversionAttempts: "dontInvert",
+                });
+                const token = result?.data?.trim();
+                if (token) return handleToken(token);
+              }
+            }
           }
         } catch {
-          // Frame not ready; keep polling.
+          // Frame not ready or transient decode error; keep polling.
         }
       }
-      window.setTimeout(() => void tick(), 250);
+      window.setTimeout(() => void tick(), 200);
     };
     void tick();
 
@@ -75,22 +101,32 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanning, supportsDetector]);
+  }, [scanning]);
 
   const startCamera = async () => {
     setCameraError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
+      // Prefer the rear camera on phones; fall back to any camera (e.g. a Mac).
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.setAttribute("playsinline", "true"); // iOS Safari: stay inline
+        await video.play();
       }
       setScanning(true);
     } catch {
-      setCameraError("Camera unavailable. Paste the code from under the QR instead.");
+      setCameraError(
+        "Couldn't open the camera. Allow camera access in your browser settings, or paste the code below.",
+      );
     }
   };
 
@@ -106,38 +142,40 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
       <h3 className="text-base font-bold">Scan a pickup pass</h3>
 
-      {supportsDetector ? (
-        <div className="mt-3">
-          {scanning ? (
-            <>
+      <div className="mt-3">
+        {scanning ? (
+          <>
+            <div className="relative mx-auto w-full max-w-72 overflow-hidden rounded-xl bg-ink">
               <video
                 ref={videoRef}
-                className="aspect-square w-full max-w-72 rounded-xl bg-ink object-cover"
+                className="aspect-square w-full object-cover"
                 muted
+                autoPlay
                 playsInline
               />
-              <Button variant="secondary" size="sm" className="mt-3" onClick={stopCamera}>
-                <CameraOff className="size-3.5" aria-hidden="true" />
-                Stop camera
-              </Button>
-            </>
-          ) : (
-            <Button onClick={() => void startCamera()} disabled={busy}>
-              <Camera className="size-4" aria-hidden="true" />
-              Start camera
+              {/* Framing guide */}
+              <div className="pointer-events-none absolute inset-8 rounded-lg border-2 border-white/70" />
+            </div>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={stopCamera}>
+              <CameraOff className="size-3.5" aria-hidden="true" />
+              Stop camera
             </Button>
-          )}
-          {cameraError && (
-            <p className="mt-2 text-xs font-medium text-accent" role="alert">
-              {cameraError}
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mt-2 text-xs text-ink-muted">
-          This browser cannot scan with the camera. Paste the code printed under the QR instead.
-        </p>
-      )}
+          </>
+        ) : (
+          <Button onClick={() => void startCamera()} disabled={busy}>
+            <Camera className="size-4" aria-hidden="true" />
+            Start camera
+          </Button>
+        )}
+        {cameraError && (
+          <p className="mt-2 text-xs font-medium text-accent" role="alert">
+            {cameraError}
+          </p>
+        )}
+      </div>
+
+      {/* Off-screen canvas used for jsQR frame decoding on Safari. */}
+      <canvas ref={canvasRef} className="hidden" />
 
       <form onSubmit={submitManual} className="mt-4">
         <Label htmlFor="manual-token">Or enter the pass code</Label>
