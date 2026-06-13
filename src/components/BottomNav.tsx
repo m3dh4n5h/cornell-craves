@@ -26,17 +26,23 @@ const STUDENT_TABS: Tab[] = [
   { to: "/account/settings", label: "Account", Icon: UserRound },
 ];
 
-// Admins see everything students do, plus the Admin console.
-const ADMIN_TABS: Tab[] = [...STUDENT_TABS, { to: "/admin", label: "Admin", Icon: ShieldCheck }];
+const ADMIN_TAB: Tab = { to: "/admin", label: "Admin", Icon: ShieldCheck };
 
-// Club owners only manage their club: Dashboard + Account.
+// Admins see everything students do, plus the Admin console.
+const ADMIN_TABS: Tab[] = [...STUDENT_TABS, ADMIN_TAB];
+
+// Club owners manage their club and can browse Drops + Map, but not order.
 const CLUB_TABS: Tab[] = [
+  { to: "/", label: "Drops", Icon: Flame, end: true },
+  { to: "/map", label: "Map", Icon: MapPinned },
   { to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { to: "/account/settings", label: "Account", Icon: UserRound },
 ];
 
 const GRID_COLS: Record<number, string> = {
   2: "grid-cols-2",
+  4: "grid-cols-4",
+  5: "grid-cols-5",
   6: "grid-cols-6",
   7: "grid-cols-7",
 };
@@ -45,7 +51,13 @@ const GRID_COLS: Record<number, string> = {
 export function BottomNav() {
   const { isAdmin } = useAuth();
   const { club } = useClub();
-  const tabs = club ? CLUB_TABS : isAdmin ? ADMIN_TABS : STUDENT_TABS;
+  const tabs = club
+    ? isAdmin
+      ? [...CLUB_TABS, ADMIN_TAB]
+      : CLUB_TABS
+    : isAdmin
+      ? ADMIN_TABS
+      : STUDENT_TABS;
 
   return (
     <nav

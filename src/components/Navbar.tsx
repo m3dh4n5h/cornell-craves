@@ -43,14 +43,25 @@ export function Navbar() {
         {/* On mobile the bottom tab bar carries navigation; the top bar stays clean. */}
         <div className="hidden items-center gap-2 md:flex">
           {club ? (
-            // Club owners only manage their club.
+            // Club owners manage their club and can browse Drops + Map.
             <>
+              <NavLink to="/" end className={navLinkClass}>
+                Drops
+              </NavLink>
+              <NavLink to="/map" className={navLinkClass}>
+                Map
+              </NavLink>
               <NavLink to="/dashboard" className={navLinkClass}>
                 Dashboard
               </NavLink>
               <NavLink to="/account/settings" className={navLinkClass}>
                 Account
               </NavLink>
+              {isAdmin && (
+                <NavLink to="/admin" className={navLinkClass}>
+                  Admin
+                </NavLink>
+              )}
               <Button variant="ghost" size="sm" onClick={handleSignOut}>
                 Sign out
               </Button>

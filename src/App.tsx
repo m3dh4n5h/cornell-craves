@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
-import { useProfile } from "@/hooks/useProfile";
+import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { Navbar } from "@/components/Navbar";
 import { BottomNav } from "@/components/BottomNav";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -95,9 +95,9 @@ function OnboardingGate() {
   return null;
 }
 
-// Routes a club owner may never see (consumer pages). Feed ("/") is handled
-// separately as an exact match.
-const CLUB_BLOCKED_PREFIXES = ["/map", "/cravings", "/orders", "/reservations"];
+// Consumer pages a club owner may never open. Clubs CAN browse the Feed
+// ("/") and Map; they just can't crave, order, or reserve as a student.
+const CLUB_BLOCKED_PREFIXES = ["/cravings", "/orders", "/reservations"];
 
 /**
  * Keeps the two roles apart: club owners are confined to their Dashboard,
@@ -114,8 +114,7 @@ function RoleGate() {
     if (authLoading || clubLoading) return;
     const path = location.pathname;
     if (club) {
-      const blocked =
-        path === "/" || CLUB_BLOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
+      const blocked = CLUB_BLOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
       if (blocked) navigate("/dashboard", { replace: true });
     } else if (user && !isAdmin) {
       if (path === "/dashboard" || path.startsWith("/club/")) {
@@ -131,6 +130,7 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
+        <ProfileProvider>
         <OnboardingGate />
         <RoleGate />
         <div className="flex min-h-dvh flex-col pb-14 md:pb-0">
@@ -178,6 +178,7 @@ export default function App() {
         </div>
         <BottomNav />
         <Toaster />
+        </ProfileProvider>
       </AuthProvider>
     </BrowserRouter>
   );

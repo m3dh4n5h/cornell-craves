@@ -7,7 +7,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BRANDS } from "@/lib/brands";
 import { cn } from "@/lib/utils";
@@ -99,21 +98,11 @@ export default function Cravings() {
 
       <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-6">
         <div>
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            value={email}
-            readOnly
-            invalid={showErrors && Boolean(emailError)}
-            placeholder="netid@cornell.edu"
-            autoComplete="email"
-          />
-          {showErrors && emailError && (
-            <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-              {emailError}
-            </p>
-          )}
+          <Label>Alerts go to</Label>
+          <p className="mt-1 rounded-xl bg-surface px-3 py-2.5 font-medium text-ink">{email}</p>
+          <p className="mt-1.5 text-xs text-ink-muted">
+            We use your account email. Sign in with a different account to change it.
+          </p>
         </div>
 
         <div>
