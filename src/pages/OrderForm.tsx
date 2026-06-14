@@ -325,6 +325,11 @@ export default function OrderForm() {
             {payMethod === "both" ? "Venmo or Zelle" : payMethod === "venmo" ? "Venmo" : "Zelle"}.
             Once they verify your payment, your QR pickup pass lands in {email.trim().toLowerCase()}.
           </p>
+          <p className="mt-3 rounded-xl bg-surface px-3 py-2.5 text-xs text-ink-muted">
+            📩 Passes can land in <span className="font-semibold text-ink">spam</span> — check there
+            if you don't see it, and once it arrives mark it "Not spam" / add the sender to your
+            contacts so future passes go straight to your inbox.
+          </p>
           <Button className="mt-6 w-full" onClick={() => navigate(`/orders/${placedId}`)}>
             Track my order
           </Button>

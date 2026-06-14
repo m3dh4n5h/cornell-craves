@@ -987,7 +987,19 @@ async function sendReminders(slotId: string, authHeader: string | null): Promise
 
 // ---------- Router ----------
 
-Deno.serve(async (req) => {
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-api-version",
+};
+
+function withCors(res: Response): Response {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) res.headers.set(key, value);
+  return res;
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -1101,4 +1113,13 @@ Deno.serve(async (req) => {
     console.error("notify-cravings failed:", error);
     return Response.json({ ok: false, error: String(error) }, { status: 500 });
   }
+}
+
+Deno.serve(async (req) => {
+  // Browsers send a CORS preflight before invoking from the app; answer it,
+  // and attach CORS headers to every real response so the app can read it.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+  return withCors(await handleRequest(req));
 });
