@@ -1,12 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, UserRound } from "lucide-react";
+import { Check, ImagePlus, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
-import { BRANDS } from "@/lib/brands";
+import { useBrandOptions } from "@/hooks/useBrands";
 import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { isValidNetid } from "@/lib/orders";
 import { GoogleButton } from "@/components/GoogleButton";
@@ -23,6 +23,7 @@ export default function AccountSettings() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { club, loading: clubLoading } = useClub();
   const { profile, loading: profileLoading, refetch } = useProfile();
+  const brandOptions = useBrandOptions();
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -52,6 +53,19 @@ export default function AccountSettings() {
     setDietary(profile.preferences_json?.dietary ?? []);
     setHydrated(true);
   }, [profile, hydrated]);
+
+  // The cravings table is authoritative for brands; reconcile so this tab and
+  // the Cravings page never drift, even for picks saved before they synced (#18).
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void supabase.rpc("get_my_craving").then(({ data }) => {
+      if (!cancelled && Array.isArray(data) && data.length > 0) setBrands(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
 
   if (!authLoading && !user) {
     return (
@@ -310,7 +324,7 @@ export default function AccountSettings() {
         <div>
           <Label>Craved brands</Label>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Brands to watch">
-            {BRANDS.map((brand) => {
+            {brandOptions.map((brand) => {
               const selected = brands.includes(brand);
               return (
                 <button
@@ -407,6 +421,53 @@ function ClubAccount({ club }: { club: Club }) {
   const [consent, setConsent] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [togglingGroups, setTogglingGroups] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Upload a logo to the club-logos bucket and store its public URL (#14).
+  const uploadLogo = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pick an image file (PNG, JPG, or SVG).");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be under 2 MB.");
+      return;
+    }
+    setUploadingLogo(true);
+    const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+    // A fresh filename each time so the public URL changes and never serves a stale logo.
+    const path = `${club.id}/logo-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("club-logos")
+      .upload(path, file, { cacheControl: "3600", upsert: true });
+    if (uploadError) {
+      setUploadingLogo(false);
+      toast.error(uploadError.message);
+      return;
+    }
+    const { data: pub } = supabase.storage.from("club-logos").getPublicUrl(path);
+    const { error } = await supabase.from("clubs").update({ logo_url: pub.publicUrl }).eq("id", club.id);
+    setUploadingLogo(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success("Logo updated. It now shows on your drops.");
+  };
+
+  const removeLogo = async () => {
+    setUploadingLogo(true);
+    const { error } = await supabase.from("clubs").update({ logo_url: null }).eq("id", club.id);
+    setUploadingLogo(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success("Logo removed.");
+  };
 
   const setGroupsEnabled = async (enabled: boolean) => {
     setTogglingGroups(true);
@@ -520,6 +581,59 @@ function ClubAccount({ club }: { club: Club }) {
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Club</p>
         <p className="mt-1 text-lg font-bold">{club.name}</p>
         <p className="text-sm text-ink-muted">{club.email}</p>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+        <p className="text-sm font-bold">Logo</p>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          Shows on your feed cards and drop pages. Square images look best, under 2 MB.
+        </p>
+        <div className="mt-3 flex items-center gap-4">
+          {club.logo_url ? (
+            <img
+              src={club.logo_url}
+              alt={`${club.name} logo`}
+              className="size-16 shrink-0 rounded-2xl border border-border object-cover"
+            />
+          ) : (
+            <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-dashed border-border text-ink-muted">
+              <ImagePlus className="size-6" aria-hidden="true" />
+            </span>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void uploadLogo(file);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={uploadingLogo}
+              onClick={() => logoInputRef.current?.click()}
+            >
+              {club.logo_url ? "Replace logo" : "Upload logo"}
+            </Button>
+            {club.logo_url && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={uploadingLogo}
+                onClick={() => void removeLogo()}
+              >
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">

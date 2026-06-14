@@ -24,7 +24,9 @@ export function useListings({ clubId, enabled = true }: UseListingsOptions = {})
     setError(null);
     let query = supabase
       .from("listings")
-      .select("*, clubs(name, venmo, zelle_phone, groups_enabled)")
+      .select(
+        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description))",
+      )
       .order("created_at", { ascending: false });
     if (clubId) {
       query = query.eq("club_id", clubId);
@@ -63,7 +65,9 @@ export function useListing(id: string | undefined) {
     setError(null);
     const { data, error: queryError } = await supabase
       .from("listings")
-      .select("*, clubs(name, venmo, zelle_phone, groups_enabled), campus_locations(name, latitude, longitude)")
+      .select(
+        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url), campus_locations(name, latitude, longitude), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description))",
+      )
       .eq("id", id)
       .maybeSingle<ListingWithClub>();
     if (queryError) {

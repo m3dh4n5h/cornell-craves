@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   Clock,
   Copy,
+  Mail,
   MapPinned,
   SearchX,
 } from "lucide-react";
@@ -15,9 +16,11 @@ import { supabase } from "@/lib/supabase";
 import { useListing } from "@/hooks/useListings";
 import { useCountdown } from "@/hooks/useCountdown";
 import { useAuth } from "@/hooks/useAuth";
+import { useClub } from "@/hooks/useClub";
 import { trackListingView, trackVenmoClick } from "@/lib/analytics";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
+import { ORDER_TYPE_SHORT } from "@/lib/pickup";
 import { formatPrice } from "@/lib/format";
 import { VenmoButton } from "@/components/VenmoButton";
 import { AllergenIcon } from "@/components/AllergenIcon";
@@ -143,13 +146,14 @@ function ItemsTab({ listing }: { listing: ListingWithClub }) {
         {items.map((item, index) => (
           <div key={index} className="rounded-2xl border border-border bg-surface-raised p-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="flex min-w-0 items-center gap-1.5 text-base font-bold">
+              <h3 className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-base font-bold">
                 {(item.dietary_tags ?? []).map((tag) => (
-                  <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
+                  <AllergenIcon key={tag} tag={tag} className="self-center text-ink-muted" />
                 ))}
-                <span className="truncate">{item.name}</span>
+                {/* Full item name, no clamp/truncate (Batch 2 #6) */}
+                <span className="break-words">{item.name}</span>
                 {(item.quantity ?? 1) > 1 && (
-                  <span className="shrink-0 text-xs font-normal text-ink-muted">
+                  <span className="text-xs font-normal text-ink-muted">
                     {"·"} {item.quantity} in a box
                   </span>
                 )}
@@ -202,12 +206,16 @@ export default function ListingDetail() {
   const activeTab: TabId = TABS.some((entry) => entry.id === tab) ? (tab as TabId) : "items";
   const { listing, loading, error, refetch } = useListing(id);
   const { user } = useAuth();
+  const { club } = useClub();
   const navigate = useNavigate();
   const goBack = useGoBack();
   const reduceMotion = useReducedMotion();
   const [hasSlots, setHasSlots] = useState(false);
 
   const clubOwner = Boolean(user && listing && user.id === listing.club_id);
+  // Any club account (not just this listing's owner) may not post reviews/Q&A.
+  const isClub = Boolean(club);
+  const pickupSpots = listing?.listing_pickup_spots ?? [];
 
   useEffect(() => {
     if (listing?.id) trackListingView(listing.id);
@@ -273,15 +281,23 @@ export default function ListingDetail() {
         <div>
           {/* Header */}
           <div className="flex items-start gap-4">
-            <span
-              className={cn(
-                "flex size-16 shrink-0 items-center justify-center rounded-2xl font-display text-xl font-extrabold text-ink/80",
-                brandTint(listing.brand),
-              )}
-              aria-hidden="true"
-            >
-              {brandInitials(listing.brand)}
-            </span>
+            {listing.clubs?.logo_url ? (
+              <img
+                src={listing.clubs.logo_url}
+                alt={`${listing.clubs.name ?? "Club"} logo`}
+                className="size-16 shrink-0 rounded-2xl border border-border object-cover"
+              />
+            ) : (
+              <span
+                className={cn(
+                  "flex size-16 shrink-0 items-center justify-center rounded-2xl font-display text-xl font-extrabold text-ink/80",
+                  brandTint(listing.brand),
+                )}
+                aria-hidden="true"
+              >
+                {brandInitials(listing.brand)}
+              </span>
+            )}
             <div className="min-w-0">
               <h1 className="text-2xl font-extrabold tracking-tight">{listing.title}</h1>
               <p className="mt-1 text-sm text-ink-muted">
@@ -307,14 +323,32 @@ export default function ListingDetail() {
             </Badge>
           )}
 
-          {listing.campus_locations && (
-            <Link
-              to="/map"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
-            >
-              <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
-              {listing.campus_locations.name}
-            </Link>
+          {pickupSpots.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {pickupSpots.map((spot) => (
+                <Link
+                  key={spot.id}
+                  to="/map"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
+                >
+                  <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
+                  {spot.campus_locations?.name ?? "Pickup spot"}
+                  <Badge variant={spot.order_type === "same_day" ? "success" : "default"}>
+                    {ORDER_TYPE_SHORT[spot.order_type]}
+                  </Badge>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            listing.campus_locations && (
+              <Link
+                to="/map"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
+              >
+                <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
+                {listing.campus_locations.name}
+              </Link>
+            )
           )}
 
           {dietaryTags.length > 0 && (
@@ -344,6 +378,18 @@ export default function ListingDetail() {
             <p className="mt-3 flex items-start gap-2 text-sm text-ink-muted">
               <MapPinned className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               {listing.pickup_info}
+            </p>
+          )}
+
+          {listing.contact_email && (
+            <p className="mt-2 flex items-start gap-2 text-sm text-ink-muted">
+              <Mail className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <a
+                href={`mailto:${listing.contact_email}`}
+                className="font-medium text-ink underline-offset-2 hover-fine:underline"
+              >
+                {listing.contact_email}
+              </a>
             </p>
           )}
 
@@ -390,10 +436,13 @@ export default function ListingDetail() {
               <ReviewsSection
                 listingId={listing.id}
                 canRespond={clubOwner}
+                isClub={isClub}
                 onChanged={() => void refetch()}
               />
             )}
-            {activeTab === "qa" && <QAThread listingId={listing.id} canRespond={clubOwner} />}
+            {activeTab === "qa" && (
+              <QAThread listingId={listing.id} canRespond={clubOwner} isClub={isClub} />
+            )}
             {activeTab === "schedule" && <PickupCalendar listing={listing} />}
           </div>
         </div>

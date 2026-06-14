@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowLeft, BadgeCheck, Download, Inbox, TriangleAlert } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ChevronDown, Download, Inbox, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -39,8 +39,35 @@ interface ScanResult {
   holder?: { name: string; email: string; type: string };
 }
 
+// The edge function returns the real reason (e.g. "QR_SECRET is not set" or a
+// Brevo send error) in its JSON body. supabase-js surfaces a non-2xx as a
+// FunctionsHttpError whose `.context` is the Response, so pull the message out
+// instead of showing a generic "could not verify" toast (Batch 2 #0).
+async function readFnError(error: unknown): Promise<string> {
+  const ctx = (error as { context?: Response } | null)?.context;
+  if (ctx && typeof ctx.json === "function") {
+    try {
+      const body = (await ctx.json()) as { error?: string } | null;
+      if (body && typeof body.error === "string" && body.error.trim()) return body.error;
+    } catch {
+      /* body was not JSON; fall through */
+    }
+  }
+  return (error as { message?: string } | null)?.message ?? "Edge function error";
+}
+
 function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+/** How many buyers still owe payment in a listing section (solo + split). */
+function owedCount(orders: OrderRow[], groups: GroupDetails[]): number {
+  const solo = orders.filter((order) => order.status === "pending_payment").length;
+  const split = groups.reduce(
+    (sum, group) => sum + group.members.filter((member) => member.status === "pending_payment").length,
+    0,
+  );
+  return solo + split;
 }
 
 function qrStatus(order: OrderRow): string {
@@ -49,6 +76,153 @@ function qrStatus(order: OrderRow): string {
   const scanned = order.order_qr_codes.find((qr) => qr.scanned_at);
   if (scanned) return `Used (${scanned.user_type})`;
   return "QR sent";
+}
+
+function OrderCard({
+  order,
+  verifying,
+  onVerify,
+}: {
+  order: OrderRow;
+  verifying: boolean;
+  onVerify: () => void;
+}) {
+  const status = ORDER_STATUS_META[order.status];
+  return (
+    <div className="rounded-2xl border border-border bg-surface-raised p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold">
+            {order.orderer_name}
+            {order.orderer_netid && (
+              <span className="ml-1.5 font-mono text-xs font-normal text-ink-muted">
+                {order.orderer_netid}
+              </span>
+            )}
+          </p>
+          <p className="truncate font-mono text-xs text-ink-muted">{order.orderer_email}</p>
+        </div>
+        <Badge variant={status.variant}>{status.label}</Badge>
+      </div>
+
+      <p className="mt-2 text-sm">
+        {orderItemsSummary(order.items_json)}{" "}
+        <span className="font-mono font-bold">{formatPrice(Number(order.total))}</span>
+      </p>
+      <p className="mt-1 text-xs text-ink-muted">
+        Pays via {order.payment_method === "both" ? "Venmo or Zelle" : order.payment_method}
+        {order.payment_details_json.venmo && (
+          <span className="ml-1 font-mono">@{order.payment_details_json.venmo}</span>
+        )}
+        {order.payment_details_json.zelle && (
+          <span className="ml-1 font-mono">{order.payment_details_json.zelle}</span>
+        )}
+        <span className="mx-1">/</span>
+        {qrStatus(order)}
+        {order.proxy_name && (
+          <>
+            <span className="mx-1">/</span>proxy: {order.proxy_name}
+          </>
+        )}
+      </p>
+      {order.picked_up_by_name && (
+        <p className="mt-1 text-xs text-ink-muted">
+          Picked up by {order.picked_up_by_name} ({order.picked_up_by_email})
+        </p>
+      )}
+
+      {order.status === "pending_payment" && (
+        <Button size="sm" className="mt-3" loading={verifying} onClick={onVerify}>
+          <BadgeCheck className="size-3.5" aria-hidden="true" />
+          Verify payment
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SplitGroupCard({
+  group,
+  busyId,
+  onVerifyMember,
+  onReactivate,
+}: {
+  group: GroupDetails;
+  busyId: string | null;
+  onVerifyMember: (memberId: string) => void;
+  onReactivate: (groupId: string) => void;
+}) {
+  const status = GROUP_STATUS_META[group.status];
+  const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-surface-raised p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold">
+            Split: {group.item_name}{" "}
+            <span className="font-normal text-ink-muted">split {group.total_people} ways</span>
+          </p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            <span className="font-mono font-bold text-ink">
+              {formatPrice(Number(group.share_amount))}
+            </span>{" "}
+            per person, {formatPrice(Number(group.item_price))} total
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={status.variant}>{status.label}</Badge>
+          {(group.status === "filling" || payable) && (
+            <DeadlineTimer deadline={group.deadline} prefix="Deadline" />
+          )}
+        </div>
+      </div>
+
+      <ul className="mt-3 divide-y divide-border/60" aria-live="polite">
+        {group.members.map((member) => {
+          const meta = MEMBER_STATUS_META[member.status];
+          return (
+            <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <span className="text-sm font-semibold">
+                {member.name}
+                {member.is_creator && (
+                  <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
+                )}
+              </span>
+              <span className="flex items-center gap-2">
+                {member.scanned_at ? (
+                  <Badge variant="success">Picked up</Badge>
+                ) : (
+                  <Badge variant={meta.variant}>{meta.label}</Badge>
+                )}
+                {payable && member.status === "pending_payment" && (
+                  <Button
+                    size="sm"
+                    loading={busyId === member.id}
+                    onClick={() => onVerifyMember(member.id)}
+                  >
+                    <BadgeCheck className="size-3.5" aria-hidden="true" />
+                    Verify share
+                  </Button>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {group.status === "canceled" && (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="mt-3"
+          loading={busyId === group.id}
+          onClick={() => onReactivate(group.id)}
+        >
+          Reactivate group
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export default function ClubOrders() {
@@ -64,6 +238,16 @@ export default function ClubOrders() {
   const [groupBusyId, setGroupBusyId] = useState<string | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  // Listing sections are collapsible (#15); a listing id in this set is closed.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleSection = (listingId: string) =>
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(listingId)) next.delete(listingId);
+      else next.add(listingId);
+      return next;
+    });
 
   const userId = user?.id ?? null;
 
@@ -120,6 +304,19 @@ export default function ClubOrders() {
     return true;
   });
 
+  // Group everything under its listing (#15). Filters above narrow what each
+  // section shows; split-order groups follow the listing filter too.
+  const visibleGroups = groups.filter(
+    (group) => !listingFilter || group.listing_id === listingFilter,
+  );
+  const sections = listings
+    .map((listing) => ({
+      listing,
+      sectionOrders: filtered.filter((order) => order.listing_id === listing.id),
+      sectionGroups: visibleGroups.filter((group) => group.listing_id === listing.id),
+    }))
+    .filter((section) => section.sectionOrders.length > 0 || section.sectionGroups.length > 0);
+
   if (authLoading) {
     return (
       <div className="mx-auto w-full max-w-4xl px-4 py-10" aria-busy="true" aria-label="Loading orders">
@@ -142,7 +339,7 @@ export default function ClubOrders() {
     });
     setGroupBusyId(null);
     if (error) {
-      toast.error("Could not verify. Is the edge function deployed?");
+      toast.error(`Verify failed: ${await readFnError(error)}`);
       return;
     }
     toast.success("Member marked paid. Their QR pass is on its way.");
@@ -156,7 +353,7 @@ export default function ClubOrders() {
     });
     setGroupBusyId(null);
     if (error) {
-      toast.error("Could not reactivate. Is the edge function deployed?");
+      toast.error(`Reactivate failed: ${await readFnError(error)}`);
       return;
     }
     toast.success("Group reactivated. Members have 24 hours to pay.");
@@ -170,7 +367,7 @@ export default function ClubOrders() {
     });
     setVerifyingId(null);
     if (error) {
-      toast.error("Could not verify. Is the edge function deployed with QR_SECRET set?");
+      toast.error(`Verify failed: ${await readFnError(error)}`);
       return;
     }
     toast.success(`Payment verified. QR ${order.proxy_name ? "passes" : "pass"} emailed.`);
@@ -185,7 +382,7 @@ export default function ClubOrders() {
     });
     setScanBusy(false);
     if (error) {
-      setScanResult({ result: "invalid", message: "Scan failed. Check the edge function deployment." });
+      setScanResult({ result: "invalid", message: `Scan failed: ${await readFnError(error)}` });
       return;
     }
     setScanResult(data as ScanResult);
@@ -336,14 +533,14 @@ export default function ClubOrders() {
         ))}
       </div>
 
-      {/* Orders */}
+      {/* Orders + split orders, grouped under each listing (#15) */}
       {loading ? (
         <div className="mt-6 space-y-3" aria-busy="true">
           {Array.from({ length: 3 }, (_, index) => (
             <div key={index} className="h-28 animate-pulse rounded-2xl bg-border/40" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sections.length === 0 ? (
         <div className="mt-6">
           <EmptyState
             icon={<Inbox className="size-6" aria-hidden="true" />}
@@ -352,154 +549,69 @@ export default function ClubOrders() {
           />
         </div>
       ) : (
-        <div className="mt-6 space-y-3">
-          {filtered.map((order) => {
-            const status = ORDER_STATUS_META[order.status];
+        <div className="mt-6 space-y-4">
+          {sections.map(({ listing, sectionOrders, sectionGroups }) => {
+            const open = !collapsed.has(listing.id);
+            const owed = owedCount(sectionOrders, sectionGroups);
+            const orderCount = sectionOrders.length;
             return (
-              <div key={order.id} className="rounded-2xl border border-border bg-surface-raised p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold">
-                      {order.orderer_name}
-                      {order.orderer_netid && (
-                        <span className="ml-1.5 font-mono text-xs font-normal text-ink-muted">
-                          {order.orderer_netid}
-                        </span>
+              <section key={listing.id} className="rounded-2xl border border-border bg-surface">
+                <button
+                  type="button"
+                  onClick={() => toggleSection(listing.id)}
+                  aria-expanded={open}
+                  className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left hover-fine:bg-ink/[0.03]"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold">{listing.title}</span>
+                    <span className="mt-0.5 block text-xs text-ink-muted">
+                      {listing.brand}, {orderCount} {orderCount === 1 ? "order" : "orders"}
+                      {sectionGroups.length > 0 &&
+                        `, ${sectionGroups.length} split ${sectionGroups.length === 1 ? "order" : "orders"}`}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {owed > 0 && <Badge variant="urgent">{owed} owe payment</Badge>}
+                    <ChevronDown
+                      className={cn(
+                        "size-4 text-ink-muted transition-transform duration-150",
+                        open && "rotate-180",
                       )}
-                    </p>
-                    <p className="truncate font-mono text-xs text-ink-muted">{order.orderer_email}</p>
+                      aria-hidden="true"
+                    />
+                  </span>
+                </button>
+
+                {open && (
+                  <div className="space-y-3 px-3 pb-3">
+                    {sectionOrders.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        verifying={verifyingId === order.id}
+                        onVerify={() => void verifyPayment(order)}
+                      />
+                    ))}
+                    {sectionGroups.map((group) => (
+                      <SplitGroupCard
+                        key={group.id}
+                        group={group}
+                        busyId={groupBusyId}
+                        onVerifyMember={(memberId) => void verifyGroupMember(memberId)}
+                        onReactivate={(groupId) => void reactivateGroup(groupId)}
+                      />
+                    ))}
+                    {sectionOrders.length === 0 && sectionGroups.length === 0 && (
+                      <p className="px-1 py-2 text-xs text-ink-muted">
+                        No orders match the current status filter.
+                      </p>
+                    )}
                   </div>
-                  <Badge variant={status.variant}>{status.label}</Badge>
-                </div>
-
-                <p className="mt-2 text-sm">
-                  {orderItemsSummary(order.items_json)}{" "}
-                  <span className="font-mono font-bold">{formatPrice(Number(order.total))}</span>
-                </p>
-                <p className="mt-1 text-xs text-ink-muted">
-                  Pays via {order.payment_method === "both" ? "Venmo or Zelle" : order.payment_method}
-                  {order.payment_details_json.venmo && (
-                    <span className="ml-1 font-mono">@{order.payment_details_json.venmo}</span>
-                  )}
-                  {order.payment_details_json.zelle && (
-                    <span className="ml-1 font-mono">{order.payment_details_json.zelle}</span>
-                  )}
-                  <span className="mx-1">/</span>
-                  {qrStatus(order)}
-                  {order.proxy_name && (
-                    <>
-                      <span className="mx-1">/</span>proxy: {order.proxy_name}
-                    </>
-                  )}
-                </p>
-                {order.picked_up_by_name && (
-                  <p className="mt-1 text-xs text-ink-muted">
-                    Picked up by {order.picked_up_by_name} ({order.picked_up_by_email})
-                  </p>
                 )}
-
-                {order.status === "pending_payment" && (
-                  <Button
-                    size="sm"
-                    className="mt-3"
-                    loading={verifyingId === order.id}
-                    onClick={() => void verifyPayment(order)}
-                  >
-                    <BadgeCheck className="size-3.5" aria-hidden="true" />
-                    Verify payment
-                  </Button>
-                )}
-              </div>
+              </section>
             );
           })}
         </div>
-      )}
-
-      {/* Split orders */}
-      {groups.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-lg font-bold">Split orders</h2>
-          <p className="mt-1 text-sm text-ink-muted">
-            Verify each member's share as it lands. Everyone paid means everyone gets a pass.
-          </p>
-          <div className="mt-4 space-y-3">
-            {groups.map((group) => {
-              const status = GROUP_STATUS_META[group.status];
-              const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
-              return (
-                <div key={group.id} className="rounded-2xl border border-border bg-surface-raised p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold">
-                        {group.item_name}{" "}
-                        <span className="font-normal text-ink-muted">
-                          on {group.listing_title}, split {group.total_people} ways
-                        </span>
-                      </p>
-                      <p className="mt-0.5 text-xs text-ink-muted">
-                        <span className="font-mono font-bold text-ink">
-                          {formatPrice(Number(group.share_amount))}
-                        </span>{" "}
-                        per person, {formatPrice(Number(group.item_price))} total
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={status.variant}>{status.label}</Badge>
-                      {(group.status === "filling" || payable) && (
-                        <DeadlineTimer deadline={group.deadline} prefix="Deadline" />
-                      )}
-                    </div>
-                  </div>
-
-                  <ul className="mt-3 divide-y divide-border/60" aria-live="polite">
-                    {group.members.map((member) => {
-                      const meta = MEMBER_STATUS_META[member.status];
-                      return (
-                        <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                          <span className="text-sm font-semibold">
-                            {member.name}
-                            {member.is_creator && (
-                              <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
-                            )}
-                          </span>
-                          <span className="flex items-center gap-2">
-                            {member.scanned_at ? (
-                              <Badge variant="success">Picked up</Badge>
-                            ) : (
-                              <Badge variant={meta.variant}>{meta.label}</Badge>
-                            )}
-                            {payable && member.status === "pending_payment" && (
-                              <Button
-                                size="sm"
-                                loading={groupBusyId === member.id}
-                                onClick={() => void verifyGroupMember(member.id)}
-                              >
-                                <BadgeCheck className="size-3.5" aria-hidden="true" />
-                                Verify share
-                              </Button>
-                            )}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-
-                  {group.status === "canceled" && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="mt-3"
-                      loading={groupBusyId === group.id}
-                      onClick={() => void reactivateGroup(group.id)}
-                    >
-                      Reactivate group
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
       )}
     </div>
   );

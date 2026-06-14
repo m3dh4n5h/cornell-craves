@@ -1,12 +1,59 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { AlertTriangle, Inbox, ShieldX } from "lucide-react";
+import { AlertTriangle, Inbox, ShieldX, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
-import type { Club } from "@/types/database";
+import { Input } from "@/components/ui/input";
+import type { BrandRequestWithClub, Club } from "@/types/database";
+
+type BrandDecision = "one_time" | "global" | "reject";
+
+function BrandRequestRow({
+  request,
+  busy,
+  onDecide,
+}: {
+  request: BrandRequestWithClub;
+  busy: boolean;
+  onDecide: (name: string, action: BrandDecision) => void;
+}) {
+  const [name, setName] = useState(request.requested_name);
+
+  return (
+    <div className="rounded-2xl border border-border bg-surface-raised p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold">
+            Requested by {request.clubs?.name ?? "a club"}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-ink-muted">{request.clubs?.email}</p>
+        </div>
+        <div className="w-full sm:w-56">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Brand name (rename to fix spelling)"
+            placeholder="Brand name"
+          />
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" loading={busy} onClick={() => onDecide(name, "global")}>
+          Deploy to all
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={() => onDecide(name, "one_time")}>
+          Approve once
+        </Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => onDecide(name, "reject")}>
+          Reject
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function PendingClubRow({
   club,
@@ -63,27 +110,60 @@ export default function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+  const [brandRequests, setBrandRequests] = useState<BrandRequestWithClub[]>([]);
+  const [brandBusyId, setBrandBusyId] = useState<string | null>(null);
 
   const fetchPending = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error: queryError } = await supabase
-      .from("clubs")
-      .select("*")
-      .eq("approved", false)
-      .order("created_at", { ascending: true });
-    if (queryError) {
-      setError(queryError.message);
+    const [clubsResult, requestsResult] = await Promise.all([
+      supabase
+        .from("clubs")
+        .select("*")
+        .eq("approved", false)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("brand_requests")
+        .select("*, clubs(name, email)")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .returns<BrandRequestWithClub[]>(),
+    ]);
+    if (clubsResult.error) {
+      setError(clubsResult.error.message);
       setPending([]);
     } else {
-      setPending(data ?? []);
+      setPending(clubsResult.data ?? []);
     }
+    setBrandRequests(requestsResult.data ?? []);
     setLoading(false);
   }, []);
 
   useEffect(() => {
     if (isAdmin) void fetchPending();
   }, [isAdmin, fetchPending]);
+
+  const decideBrand = async (id: string, name: string, action: BrandDecision) => {
+    setBrandBusyId(id);
+    const { error: rpcError } = await supabase.rpc("decide_brand_request", {
+      p_id: id,
+      p_name: name,
+      p_action: action,
+    });
+    setBrandBusyId(null);
+    if (rpcError) {
+      toast.error(rpcError.message);
+      return;
+    }
+    toast.success(
+      action === "global"
+        ? `"${name}" added for every club and in cravings.`
+        : action === "one_time"
+          ? `"${name}" approved for that club.`
+          : "Request rejected.",
+    );
+    setBrandRequests((previous) => previous.filter((entry) => entry.id !== id));
+  };
 
   if (authLoading) {
     return (
@@ -184,6 +264,43 @@ export default function Admin() {
                 confirmingReject={confirmRejectId === club.id}
                 onApprove={() => void approve(club)}
                 onReject={() => void reject(club)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-12">
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <Tag className="size-4 text-primary-dark" aria-hidden="true" />
+          Brand requests
+        </h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          Rename to fix spelling, then deploy to all clubs (also adds it to cravings) or approve
+          it just this once.
+        </p>
+        {loading ? (
+          <div className="mt-4 space-y-3" aria-busy="true">
+            {Array.from({ length: 2 }, (_, index) => (
+              <div key={index} className="h-24 animate-pulse rounded-2xl bg-border/40" />
+            ))}
+          </div>
+        ) : brandRequests.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState
+              icon={<Tag className="size-6" aria-hidden="true" />}
+              title="No brand requests"
+              body="When a club asks for a brand that isn't in the list, it shows up here."
+            />
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {brandRequests.map((request) => (
+              <BrandRequestRow
+                key={request.id}
+                request={request}
+                busy={brandBusyId === request.id}
+                onDecide={(name, action) => void decideBrand(request.id, name, action)}
               />
             ))}
           </div>

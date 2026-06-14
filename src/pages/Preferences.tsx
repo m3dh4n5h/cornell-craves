@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
-import { BRANDS } from "@/lib/brands";
+import { useBrandOptions } from "@/hooks/useBrands";
 import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ export default function Preferences() {
   const { user, loading: authLoading } = useAuth();
   const { club, loading: clubLoading } = useClub();
   const { profile, loading: profileLoading } = useProfile();
+  const brandOptions = useBrandOptions();
 
   const [brands, setBrands] = useState<string[]>([]);
   const [dietary, setDietary] = useState<DietaryTagId[]>([]);
@@ -30,6 +31,18 @@ export default function Preferences() {
     setDietary(profile?.preferences_json?.dietary ?? []);
     setHydrated(true);
   }, [profile, profileLoading, hydrated]);
+
+  // Reconcile with the cravings table so every craving screen agrees (#18).
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void supabase.rpc("get_my_craving").then(({ data }) => {
+      if (!cancelled && Array.isArray(data) && data.length > 0) setBrands(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
 
   if (!authLoading && !user) return <Navigate to="/login" replace />;
   if (!clubLoading && club) return <Navigate to="/dashboard" replace />;
@@ -82,7 +95,7 @@ export default function Preferences() {
       <div className="mt-8">
         <Label>Brands</Label>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Brands to watch">
-          {BRANDS.map((brand) => {
+          {brandOptions.map((brand) => {
             const selected = brands.includes(brand);
             return (
               <button

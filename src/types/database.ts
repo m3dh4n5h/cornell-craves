@@ -27,10 +27,14 @@ export type Club = {
   zelle_phone: string | null;
   approved: boolean;
   groups_enabled: boolean;
+  logo_url: string | null;
   created_at: string;
 };
 
 export type PickupType = "same_day_only" | "preorder_only" | "both";
+
+/** Per-spot ordering rule (Batch 2 #3). */
+export type OrderType = "same_day" | "preorder";
 
 export type CampusLocation = {
   id: string;
@@ -42,6 +46,46 @@ export type CampusLocation = {
   created_at: string;
 };
 
+/** A campus location a listing offers for pickup, with its order type (#2, #3). */
+export type ListingPickupSpot = {
+  id: string;
+  listing_id: string;
+  location_id: string;
+  order_type: OrderType;
+  created_at: string;
+};
+
+export type ListingPickupSpotWithLocation = ListingPickupSpot & {
+  campus_locations: Pick<
+    CampusLocation,
+    "id" | "name" | "latitude" | "longitude" | "description"
+  > | null;
+};
+
+/** Approved-global brand additions, merged with the static list (Batch 2 #17). */
+export type Brand = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
+export type BrandRequestStatus = "pending" | "approved" | "rejected";
+export type BrandRequestScope = "one_time" | "global";
+
+export type BrandRequest = {
+  id: string;
+  club_id: string;
+  requested_name: string;
+  status: BrandRequestStatus;
+  scope: BrandRequestScope | null;
+  decided_at: string | null;
+  created_at: string;
+};
+
+export type BrandRequestWithClub = BrandRequest & {
+  clubs: Pick<Club, "name" | "email"> | null;
+};
+
 export type Listing = {
   id: string;
   club_id: string;
@@ -51,6 +95,7 @@ export type Listing = {
   items: ListingItem[];
   pickup_info: string | null;
   pickup_location_id: string | null;
+  contact_email: string | null;
   avg_rating: number;
   review_count: number;
   expires_at: string;
@@ -60,8 +105,12 @@ export type Listing = {
 };
 
 export type ListingWithClub = Listing & {
-  clubs: Pick<Club, "name" | "venmo" | "zelle_phone" | "groups_enabled"> | null;
+  clubs: Pick<Club, "name" | "venmo" | "zelle_phone" | "groups_enabled" | "logo_url"> | null;
   campus_locations?: Pick<CampusLocation, "name" | "latitude" | "longitude" | "pickup_type"> | null;
+  /** All pickup spots for this drop (Batch 2 #2/#3), embedded from the join table. */
+  listing_pickup_spots?: ListingPickupSpotWithLocation[];
+  /** Scheduled pickup days (Batch 2 #4/#10), embedded from pickup_slots. */
+  pickup_slots?: Pick<PickupSlot, "start_time" | "end_time">[];
 };
 
 export type Craving = {
@@ -322,6 +371,23 @@ type ClubInsert = {
   zelle_phone?: string | null;
   approved?: boolean;
   groups_enabled?: boolean;
+  logo_url?: string | null;
+  created_at?: string;
+};
+
+type BrandInsert = {
+  id?: string;
+  name: string;
+  created_at?: string;
+};
+
+type BrandRequestInsert = {
+  id?: string;
+  club_id: string;
+  requested_name: string;
+  status?: BrandRequestStatus;
+  scope?: BrandRequestScope | null;
+  decided_at?: string | null;
   created_at?: string;
 };
 
@@ -334,6 +400,7 @@ type ListingInsert = {
   items?: ListingItem[];
   pickup_info?: string | null;
   pickup_location_id?: string | null;
+  contact_email?: string | null;
   avg_rating?: number;
   review_count?: number;
   expires_at: string;
@@ -363,6 +430,14 @@ type PickupSlotInsert = {
   end_time: string;
   max_reservations: number;
   reserved_count?: number;
+  created_at?: string;
+};
+
+type ListingPickupSpotInsert = {
+  id?: string;
+  listing_id: string;
+  location_id: string;
+  order_type?: OrderType;
   created_at?: string;
 };
 
@@ -553,6 +628,27 @@ export type Database = {
           },
         ];
       };
+      listing_pickup_spots: {
+        Row: ListingPickupSpot;
+        Insert: ListingPickupSpotInsert;
+        Update: Partial<ListingPickupSpotInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "listing_pickup_spots_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "listing_pickup_spots_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "campus_locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       reservations: {
         Row: Reservation;
         Insert: ReservationInsert;
@@ -614,6 +710,26 @@ export type Database = {
         Insert: CampusLocationInsert;
         Update: Partial<CampusLocationInsert>;
         Relationships: [];
+      };
+      brands: {
+        Row: Brand;
+        Insert: BrandInsert;
+        Update: Partial<BrandInsert>;
+        Relationships: [];
+      };
+      brand_requests: {
+        Row: BrandRequest;
+        Insert: BrandRequestInsert;
+        Update: Partial<BrandRequestInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "brand_requests_club_id_fkey";
+            columns: ["club_id"];
+            isOneToOne: false;
+            referencedRelation: "clubs";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       users_extended: {
         Row: UserProfile;
@@ -685,8 +801,34 @@ export type Database = {
         Args: Record<string, never>;
         Returns: undefined;
       };
+      get_my_craving: {
+        Args: Record<string, never>;
+        Returns: string[];
+      };
+      can_i_review: {
+        Args: { p_listing_id: string };
+        Returns: boolean;
+      };
+      post_review: {
+        Args: {
+          p_listing_id: string;
+          p_rating: number;
+          p_title: string;
+          p_body: string;
+          p_reviewer_name: string;
+        };
+        Returns: string;
+      };
       delete_my_account: {
         Args: Record<string, never>;
+        Returns: undefined;
+      };
+      request_brand: {
+        Args: { p_name: string };
+        Returns: string;
+      };
+      decide_brand_request: {
+        Args: { p_id: string; p_name: string; p_action: "one_time" | "global" | "reject" };
         Returns: undefined;
       };
       create_reservation: {

@@ -12,19 +12,31 @@ import { Button } from "@/components/ui/button";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { DIETARY_TAGS, DIETARY_TAG_IDS, listingDietaryTags } from "@/lib/dietary";
 import { PICKUP_TYPE_LABELS } from "@/lib/orders";
+import {
+  formatPickupDay,
+  hasUpcomingPickup,
+  nextPickup,
+  ORDER_TYPE_SHORT,
+} from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
 import { getTimeLeft } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { DietaryTagId, ListingWithClub, PickupType } from "@/types/database";
+import type { DietaryTagId, ListingWithClub, OrderType, PickupType } from "@/types/database";
 
 const CORNELL_CENTER: [number, number] = [42.4534, -76.4735];
+
+interface LocationEntry {
+  listing: ListingWithClub;
+  /** The order type for this listing at this specific spot (null = legacy). */
+  orderType: OrderType | null;
+}
 
 interface LocationGroup {
   key: string;
   name: string;
   pickupType: PickupType;
   position: [number, number];
-  listings: ListingWithClub[];
+  entries: LocationEntry[];
 }
 
 function FlyTo({ target }: { target: [number, number] | null }) {
@@ -46,7 +58,6 @@ function FlyTo({ target }: { target: [number, number] | null }) {
 export default function MapPage() {
   const reduceMotion = useReducedMotion();
   const [listings, setListings] = useState<ListingWithClub[]>([]);
-  const [unlocatedCount, setUnlocatedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
@@ -60,7 +71,7 @@ export default function MapPage() {
     const { data, error } = await supabase
       .from("listings")
       .select(
-        "*, clubs(name, venmo, zelle_phone, groups_enabled), campus_locations(name, latitude, longitude, pickup_type)",
+        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url), campus_locations(name, latitude, longitude, pickup_type), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description)), pickup_slots(start_time, end_time)",
       )
       .eq("active", true)
       .gt("expires_at", nowIso)
@@ -68,9 +79,7 @@ export default function MapPage() {
     if (error) {
       setLoadError(error.message);
     } else {
-      const all = data ?? [];
-      setListings(all.filter((listing) => listing.campus_locations));
-      setUnlocatedCount(all.filter((listing) => !listing.campus_locations).length);
+      setListings(data ?? []);
     }
     setLoading(false);
   }, []);
@@ -98,28 +107,69 @@ export default function MapPage() {
     [listings, selectedBrand, dietaryFilter],
   );
 
+  // Expand each listing across all its pickup spots, then group by location. A
+  // listing only pins where it has a pickup happening today or upcoming (#10).
   const groups = useMemo(() => {
     const byLocation = new Map<string, LocationGroup>();
     for (const listing of filtered) {
-      const location = listing.campus_locations!;
-      const key = `${location.latitude},${location.longitude}`;
-      const existing = byLocation.get(key);
-      if (existing) {
-        existing.listings.push(listing);
-      } else {
-        byLocation.set(key, {
-          key,
-          name: location.name,
-          pickupType: location.pickup_type ?? "both",
-          position: [Number(location.latitude), Number(location.longitude)],
-          listings: [listing],
-        });
+      if (!hasUpcomingPickup(listing)) continue;
+      const spots = listing.listing_pickup_spots ?? [];
+      const places =
+        spots.length > 0
+          ? spots.flatMap((spot) =>
+              spot.campus_locations
+                ? [
+                    {
+                      name: spot.campus_locations.name,
+                      lat: Number(spot.campus_locations.latitude),
+                      lng: Number(spot.campus_locations.longitude),
+                      orderType: spot.order_type as OrderType | null,
+                      pickupType: (spot.order_type === "same_day"
+                        ? "same_day_only"
+                        : "preorder_only") as PickupType,
+                    },
+                  ]
+                : [],
+            )
+          : listing.campus_locations
+            ? [
+                {
+                  name: listing.campus_locations.name,
+                  lat: Number(listing.campus_locations.latitude),
+                  lng: Number(listing.campus_locations.longitude),
+                  orderType: null as OrderType | null,
+                  pickupType: (listing.campus_locations.pickup_type ?? "both") as PickupType,
+                },
+              ]
+            : [];
+      for (const place of places) {
+        const key = `${place.lat},${place.lng}`;
+        const existing = byLocation.get(key);
+        if (existing) {
+          existing.entries.push({ listing, orderType: place.orderType });
+          if (existing.pickupType !== place.pickupType) existing.pickupType = "both";
+        } else {
+          byLocation.set(key, {
+            key,
+            name: place.name,
+            pickupType: place.pickupType,
+            position: [place.lat, place.lng],
+            entries: [{ listing, orderType: place.orderType }],
+          });
+        }
       }
     }
     return [...byLocation.values()];
   }, [filtered]);
 
   const selectedGroup = groups.find((group) => group.key === selectedKey) ?? null;
+
+  const pinnedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const group of groups) for (const entry of group.entries) ids.add(entry.listing.id);
+    return ids;
+  }, [groups]);
+  const unlocatedCount = filtered.length - pinnedIds.size;
 
   const toggleDietary = (tag: DietaryTagId) => {
     setDietaryFilter((previous) =>
@@ -133,7 +183,7 @@ export default function MapPage() {
         <h1 className="text-2xl font-extrabold tracking-tight">Drops on campus</h1>
         {!loading && !loadError && (
           <span className="text-sm text-ink-muted">
-            {filtered.length} pinned {filtered.length === 1 ? "drop" : "drops"}
+            {pinnedIds.size} pinned {pinnedIds.size === 1 ? "drop" : "drops"}
             {unlocatedCount > 0 && `, ${unlocatedCount} more on the feed without a pin`}
           </span>
         )}
@@ -217,8 +267,8 @@ export default function MapPage() {
                   key={group.key}
                   position={group.position}
                   icon={createBrandPin(
-                    group.listings[0].brand,
-                    group.listings.length,
+                    group.entries[0].listing.brand,
+                    group.entries.length,
                     group.key === selectedKey,
                     group.pickupType,
                   )}
@@ -269,9 +319,10 @@ export default function MapPage() {
                     </button>
                   </div>
                   <div className="mt-2 space-y-2">
-                    {selectedGroup.listings.map((listing) => {
+                    {selectedGroup.entries.map(({ listing, orderType }) => {
                       const timeLeft = getTimeLeft(listing.expires_at);
                       const range = priceRange(listing.items ?? []);
+                      const day = nextPickup(listing);
                       return (
                         <Link
                           key={listing.id}
@@ -292,6 +343,18 @@ export default function MapPage() {
                             <span className="block truncate text-xs text-ink-muted">
                               {listing.brand}
                               {range ? `, ${range}` : ""}
+                            </span>
+                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                              {orderType && (
+                                <Badge variant={orderType === "same_day" ? "success" : "default"}>
+                                  {ORDER_TYPE_SHORT[orderType]}
+                                </Badge>
+                              )}
+                              {day && (
+                                <span className="text-xs font-semibold text-ink-muted">
+                                  Pickup {formatPickupDay(day)}
+                                </span>
+                              )}
                             </span>
                           </span>
                           <Badge variant={timeLeft.urgent ? "urgent" : "neutral"}>{timeLeft.label}</Badge>

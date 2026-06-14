@@ -8,13 +8,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { BRANDS } from "@/lib/brands";
+import { useBrandOptions } from "@/hooks/useBrands";
 import { cn } from "@/lib/utils";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Cravings() {
   const { user, isGoogleUser, loading: authLoading } = useAuth();
+  const brandOptions = useBrandOptions();
   const reduceMotion = useReducedMotion();
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -25,6 +26,18 @@ export default function Cravings() {
   // Alerts go to your account email; prefill and lock the field.
   useEffect(() => {
     if (user?.email) setEmail((previous) => previous || user.email!);
+  }, [user]);
+
+  // Load any existing picks so this page and the Account tab stay in sync (#18).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void supabase.rpc("get_my_craving").then(({ data }) => {
+      if (!cancelled && Array.isArray(data) && data.length > 0) setSelected(data);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   // Craving subscriptions require a Google student account.
@@ -108,7 +121,7 @@ export default function Cravings() {
         <div>
           <Label>Brands</Label>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Brands to watch">
-            {BRANDS.map((brand) => {
+            {brandOptions.map((brand) => {
               const isSelected = selected.includes(brand);
               return (
                 <button

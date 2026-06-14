@@ -9,12 +9,11 @@ export const BRANDS = [
   "Auntie Anne's",
   "Wingstop",
   "Shake Shack",
-  "Nothing Bundt Cakes",
+  "Cinnabon",
   "Insomnia Cookies",
   "In-N-Out",
   "Texas Roadhouse",
   "Club Bake Sale",
-  "Other",
 ] as const;
 
 const TINT_CLASSES = [

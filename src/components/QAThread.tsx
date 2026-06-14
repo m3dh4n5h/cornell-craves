@@ -141,9 +141,11 @@ interface QAThreadProps {
   listingId: string;
   /** True when the signed-in user owns the listing's club. */
   canRespond: boolean;
+  /** True when the signed-in user is a club account (clubs cannot ask questions). */
+  isClub: boolean;
 }
 
-export function QAThread({ listingId, canRespond }: QAThreadProps) {
+export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
   const [entries, setEntries] = useState<QAEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<"newest" | "helpful">("newest");
@@ -202,6 +204,8 @@ export function QAThread({ listingId, canRespond }: QAThreadProps) {
 
   return (
     <div>
+      {/* Clubs answer questions but cannot ask them (Batch 2 #8). */}
+      {!isClub && (
       <form onSubmit={submit} noValidate className="rounded-2xl border border-border bg-surface-raised p-4">
         <h3 className="text-base font-bold">Ask the club</h3>
         <p className="mt-1 text-xs text-ink-muted">
@@ -245,6 +249,7 @@ export function QAThread({ listingId, canRespond }: QAThreadProps) {
           Ask anonymously
         </Button>
       </form>
+      )}
 
       {loading ? (
         <div className="mt-4 space-y-3" aria-busy="true" aria-label="Loading questions">

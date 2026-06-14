@@ -4,6 +4,7 @@ import { MapPin, Star } from "lucide-react";
 import type { ListingWithClub } from "@/types/database";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
+import { listingOrderTypes, ORDER_TYPE_LABEL } from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
 import { useCountdown } from "@/hooks/useCountdown";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,8 @@ export function ListingCard({ listing }: ListingCardProps) {
   const range = priceRange(listing.items ?? []);
   const itemCount = listing.items?.length ?? 0;
   const dietaryTags = listingDietaryTags(listing.items);
+  const orderTypes = listingOrderTypes(listing);
+  const spotCount = listing.listing_pickup_spots?.length ?? 0;
 
   return (
     <motion.article variants={cardItemVariants} className="h-full">
@@ -36,15 +39,24 @@ export function ListingCard({ listing }: ListingCardProps) {
         className="block h-full rounded-2xl border border-border bg-surface-raised p-4 transition-[transform,box-shadow,border-color] duration-150 [transition-timing-function:var(--ease-out)] hover-fine:-translate-y-0.5 hover-fine:border-primary/60 hover-fine:shadow-[0_6px_20px_oklch(72%_0.19_75/0.18)] active:scale-[0.98]"
       >
         <div className="flex items-start gap-3">
-          <span
-            className={cn(
-              "flex size-12 shrink-0 items-center justify-center rounded-xl font-display text-base font-extrabold text-ink/80",
-              brandTint(listing.brand),
-            )}
-            aria-hidden="true"
-          >
-            {brandInitials(listing.brand)}
-          </span>
+          {listing.clubs?.logo_url ? (
+            <img
+              src={listing.clubs.logo_url}
+              alt={`${listing.clubs.name ?? "Club"} logo`}
+              className="size-12 shrink-0 rounded-xl border border-border object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <span
+              className={cn(
+                "flex size-12 shrink-0 items-center justify-center rounded-xl font-display text-base font-extrabold text-ink/80",
+                brandTint(listing.brand),
+              )}
+              aria-hidden="true"
+            >
+              {brandInitials(listing.brand)}
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-display text-lg font-bold leading-snug">
               {listing.title}
@@ -74,6 +86,21 @@ export function ListingCard({ listing }: ListingCardProps) {
             <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{listing.pickup_info}</span>
           </p>
+        )}
+
+        {orderTypes.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {orderTypes.map((type) => (
+              <Badge key={type} variant={type === "same_day" ? "success" : "default"}>
+                {ORDER_TYPE_LABEL[type]}
+              </Badge>
+            ))}
+            {spotCount > 1 && (
+              <span className="text-xs font-semibold text-ink-muted">
+                {spotCount} pickup spots
+              </span>
+            )}
+          </div>
         )}
 
         {dietaryTags.length > 0 && (

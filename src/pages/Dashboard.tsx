@@ -30,9 +30,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { BRANDS } from "@/lib/brands";
+import { useBrandOptions } from "@/hooks/useBrands";
 import { formatExpiry } from "@/lib/format";
-import type { CampusLocation, Club, ListingWithClub, PickupSlot } from "@/types/database";
+import type {
+  CampusLocation,
+  Club,
+  ListingPickupSpot,
+  ListingWithClub,
+  OrderType,
+  PickupSlot,
+} from "@/types/database";
 
 function toDatetimeLocal(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -154,6 +161,106 @@ function SlotsEditor({
   );
 }
 
+interface SpotDraft {
+  id?: string;
+  locationId: string;
+  orderType: OrderType;
+}
+
+/** Spots are optional, but no two may point at the same campus location. */
+function spotsError(spots: SpotDraft[]): string | undefined {
+  const picked = spots.map((spot) => spot.locationId).filter(Boolean);
+  if (new Set(picked).size !== picked.length) {
+    return "Each pickup spot must be a different campus location.";
+  }
+  return undefined;
+}
+
+const SELECT_CLASS =
+  "h-10 w-full rounded-xl border border-border bg-surface-raised px-3 text-sm text-ink focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40";
+
+function SpotsEditor({
+  spots,
+  locations,
+  onChange,
+}: {
+  spots: SpotDraft[];
+  locations: CampusLocation[];
+  onChange: (spots: SpotDraft[]) => void;
+}) {
+  const update = (index: number, patch: Partial<SpotDraft>) => {
+    onChange(spots.map((spot, i) => (i === index ? { ...spot, ...patch } : spot)));
+  };
+
+  const addSpot = () => {
+    onChange([...spots, { locationId: "", orderType: "preorder" }]);
+  };
+
+  return (
+    <div className="space-y-2">
+      {spots.length === 0 && (
+        <p className="text-xs text-ink-muted">
+          Optional. Add one or more campus spots so this drop shows on the map. Tag each as
+          pre-order or same-day.
+        </p>
+      )}
+      {spots.map((spot, index) => (
+        <div
+          key={spot.id ?? `new-${index}`}
+          className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 p-2.5"
+        >
+          <div className="min-w-44 flex-1">
+            <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
+              Campus spot
+            </Label>
+            <select
+              id={`spot-location-${index}`}
+              value={spot.locationId}
+              onChange={(e) => update(index, { locationId: e.target.value })}
+              className={SELECT_CLASS}
+            >
+              <option value="">Pick a location</option>
+              {locations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-36 flex-1">
+            <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
+              Ordering
+            </Label>
+            <select
+              id={`spot-type-${index}`}
+              value={spot.orderType}
+              onChange={(e) => update(index, { orderType: e.target.value as OrderType })}
+              className={SELECT_CLASS}
+            >
+              <option value="preorder">Pre-order only</option>
+              <option value="same_day">Same-day pickup</option>
+            </select>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange(spots.filter((_, i) => i !== index))}
+            aria-label={`Remove pickup spot ${index + 1}`}
+            className="mb-0.5 px-2.5 text-ink-muted"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="secondary" size="sm" onClick={addSpot} disabled={spots.length >= 8}>
+        <Plus className="size-4" aria-hidden="true" />
+        Add pickup spot
+      </Button>
+    </div>
+  );
+}
+
 interface ListingFormProps {
   club: Club;
   initial: ListingWithClub | null;
@@ -168,7 +275,12 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
   const [description, setDescription] = useState(initial?.description ?? "");
   const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(initial?.items ?? null));
   const [pickupInfo, setPickupInfo] = useState(initial?.pickup_info ?? "");
-  const [locationId, setLocationId] = useState(initial?.pickup_location_id ?? "");
+  // Multiple pickup spots, each with its own order type (Batch 2 #2/#3/#5).
+  const [spots, setSpots] = useState<SpotDraft[]>([]);
+  const [originalSpots, setOriginalSpots] = useState<ListingPickupSpot[]>([]);
+  // Contact email is per-listing and required on every drop (Batch 2 #1). On
+  // edit it loads the existing value; on a new listing it starts blank.
+  const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
   const [expiresAt, setExpiresAt] = useState(
     initial
       ? toDatetimeLocal(new Date(initial.expires_at))
@@ -178,6 +290,10 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
   const [originalSlots, setOriginalSlots] = useState<PickupSlot[]>([]);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Request-a-brand (#17): brands not in the merged list can be sent to admin.
+  const brandOptions = useBrandOptions();
+  const [requestingBrand, setRequestingBrand] = useState(false);
+  const [requestedBrands, setRequestedBrands] = useState<string[]>([]);
 
   const initialId = initial?.id ?? null;
 
@@ -207,10 +323,32 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
     };
   }, [initialId]);
 
+  // Load existing pickup spots so the club can edit them later (#5).
+  useEffect(() => {
+    if (!initialId) return;
+    let cancelled = false;
+    void supabase
+      .from("listing_pickup_spots")
+      .select("*")
+      .eq("listing_id", initialId)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setOriginalSpots(data);
+        setSpots(data.map((spot) => ({ id: spot.id, locationId: spot.location_id, orderType: spot.order_type })));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialId]);
+
   const filledSlots = slots.filter((slot) => slot.start || slot.end);
   const errors = {
     brand: brand.trim() ? undefined : "Pick the brand you are selling.",
     title: title.trim() ? undefined : "Give the drop a title.",
+    contactEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())
+      ? undefined
+      : "Enter a contact email buyers can reach you at.",
     items:
       parseItemDrafts(items).length > 0
         ? undefined
@@ -223,8 +361,33 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
     slots: filledSlots.every(slotDraftValid)
       ? undefined
       : "Every pickup slot needs a start, an end after it, and at least as many spots as already reserved.",
+    spots: spotsError(spots),
   };
   const hasErrors = Object.values(errors).some(Boolean);
+
+  const syncSpots = async (listingId: string): Promise<string | null> => {
+    const filled = spots.filter((spot) => spot.locationId);
+    const keptIds = new Set(filled.map((spot) => spot.id).filter(Boolean));
+
+    for (const original of originalSpots) {
+      if (!keptIds.has(original.id)) {
+        const { error } = await supabase.from("listing_pickup_spots").delete().eq("id", original.id);
+        if (error) return error.message;
+      }
+    }
+    for (const draft of filled) {
+      const payload = {
+        listing_id: listingId,
+        location_id: draft.locationId,
+        order_type: draft.orderType,
+      };
+      const { error } = draft.id
+        ? await supabase.from("listing_pickup_spots").update(payload).eq("id", draft.id)
+        : await supabase.from("listing_pickup_spots").insert(payload);
+      if (error) return error.message;
+    }
+    return null;
+  };
 
   const syncSlots = async (listingId: string): Promise<string | null> => {
     const validDrafts = filledSlots.filter(slotDraftValid);
@@ -257,13 +420,16 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
     if (hasErrors) return;
 
     setSubmitting(true);
+    // Mirror the first spot into the legacy single column for back-compat reads.
+    const firstSpot = spots.find((spot) => spot.locationId)?.locationId ?? null;
     const payload = {
       brand: brand.trim(),
       title: title.trim(),
       description: description.trim() || null,
       items: parseItemDrafts(items),
       pickup_info: pickupInfo.trim() || null,
-      pickup_location_id: locationId || null,
+      pickup_location_id: firstSpot,
+      contact_email: contactEmail.trim(),
       expires_at: new Date(expiresAt).toISOString(),
     };
 
@@ -290,13 +456,36 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
     }
 
     const slotError = listingId ? await syncSlots(listingId) : null;
+    const spotError = listingId && !slotError ? await syncSpots(listingId) : null;
     setSubmitting(false);
     if (slotError) {
       toast.error(`Listing saved, but slots failed: ${slotError}`);
+    } else if (spotError) {
+      toast.error(`Listing saved, but pickup spots failed: ${spotError}`);
     } else {
       toast.success(initial ? "Listing updated" : "Your drop is live");
     }
     onSaved();
+  };
+
+  const trimmedBrand = brand.trim();
+  const isKnownBrand = brandOptions.some(
+    (option) => option.toLowerCase() === trimmedBrand.toLowerCase(),
+  );
+  const brandRequested = requestedBrands.some(
+    (name) => name.toLowerCase() === trimmedBrand.toLowerCase(),
+  );
+
+  const requestBrand = async () => {
+    setRequestingBrand(true);
+    const { error } = await supabase.rpc("request_brand", { p_name: trimmedBrand });
+    setRequestingBrand(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setRequestedBrands((previous) => [...previous, trimmedBrand]);
+    toast.success("Brand requested. An admin will review adding it to the list.");
   };
 
   return (
@@ -319,11 +508,32 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
             placeholder="Krispy Kreme"
           />
           <datalist id="brand-options">
-            {BRANDS.map((option) => (
+            {brandOptions.map((option) => (
               <option key={option} value={option} />
             ))}
           </datalist>
           <FieldError message={showErrors ? errors.brand : undefined} />
+          {trimmedBrand.length >= 2 && !isKnownBrand && (
+            <div className="mt-1.5 text-xs text-ink-muted">
+              {brandRequested ? (
+                <span className="font-medium text-primary-dark">
+                  Requested. You can still post with this brand now.
+                </span>
+              ) : (
+                <>
+                  Not in the list?{" "}
+                  <button
+                    type="button"
+                    onClick={() => void requestBrand()}
+                    disabled={requestingBrand}
+                    className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline disabled:opacity-60"
+                  >
+                    Request "{trimmedBrand}" for everyone
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div>
           <Label htmlFor="expires-at">Ends at</Label>
@@ -361,41 +571,45 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
       </div>
 
       <div className="mt-5">
+        <Label htmlFor="contact-email">Contact email</Label>
+        <Input
+          id="contact-email"
+          type="email"
+          value={contactEmail}
+          invalid={showErrors && Boolean(errors.contactEmail)}
+          onChange={(e) => setContactEmail(e.target.value)}
+          placeholder="club-officer@cornell.edu"
+        />
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Shown on this listing so buyers can reach you about it. Enter it fresh for each drop.
+        </p>
+        <FieldError message={showErrors ? errors.contactEmail : undefined} />
+      </div>
+
+      <div className="mt-5">
         <Label>Items, prices, dietary tags</Label>
         <ItemsEditor items={items} onChange={setItems} />
         <FieldError message={showErrors ? errors.items : undefined} />
       </div>
 
-      <div className="mt-5 grid gap-5 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="pickup-location">Pickup spot (shows on the map)</Label>
-          <select
-            id="pickup-location"
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-            className="h-11 w-full rounded-xl border border-border bg-surface-raised px-3 text-base text-ink focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
-          >
-            <option value="">No map pin</option>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="pickup">Pickup details (optional)</Label>
-          <Input
-            id="pickup"
-            value={pickupInfo}
-            onChange={(e) => setPickupInfo(e.target.value)}
-            placeholder="Duffield atrium, 5 to 8 pm"
-          />
-        </div>
+      <div className="mt-5">
+        <Label>Pickup spots (show on the map)</Label>
+        <SpotsEditor spots={spots} locations={locations} onChange={setSpots} />
+        <FieldError message={showErrors ? errors.spots : undefined} />
       </div>
 
       <div className="mt-5">
-        <Label>Pickup slots</Label>
+        <Label htmlFor="pickup">Pickup details (optional)</Label>
+        <Input
+          id="pickup"
+          value={pickupInfo}
+          onChange={(e) => setPickupInfo(e.target.value)}
+          placeholder="Duffield atrium, 5 to 8 pm"
+        />
+      </div>
+
+      <div className="mt-5">
+        <Label>Pickup days</Label>
         <SlotsEditor slots={slots} onChange={setSlots} />
         <FieldError message={showErrors ? errors.slots : undefined} />
       </div>

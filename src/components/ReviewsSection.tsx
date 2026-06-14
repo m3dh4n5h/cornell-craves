@@ -4,7 +4,6 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { MessageSquarePlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { getSavedEmail, setSavedEmail } from "@/lib/local";
 import { RatingStars } from "@/components/RatingStars";
 import { ReviewCard } from "@/components/ReviewCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -15,13 +14,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { Review } from "@/types/database";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VIRTUALIZE_THRESHOLD = 100;
 
 interface ReviewsSectionProps {
   listingId: string;
   /** True when the signed-in user owns the listing's club. */
   canRespond: boolean;
+  /** True when the signed-in user is a club account (clubs cannot post reviews). */
+  isClub: boolean;
   /** Called after any change so the parent can refresh avg_rating. */
   onChanged?: () => void;
 }
@@ -62,20 +62,35 @@ function VirtualReviewList({
   );
 }
 
-export function ReviewsSection({ listingId, canRespond, onChanged }: ReviewsSectionProps) {
+export function ReviewsSection({ listingId, canRespond, isClub, onChanged }: ReviewsSectionProps) {
   const reduceMotion = useReducedMotion();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [starFilter, setStarFilter] = useState<number | null>(null);
+  // Only a signed-in buyer with a verified order may post (Batch 2 #13).
+  const [eligible, setEligible] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState(getSavedEmail);
   const [rating, setRating] = useState(0);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isClub) {
+      setEligible(false);
+      return;
+    }
+    let cancelled = false;
+    void supabase.rpc("can_i_review", { p_listing_id: listingId }).then(({ data }) => {
+      if (!cancelled) setEligible(data === true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isClub, listingId]);
 
   const refetch = useCallback(async () => {
     const { data, error } = await supabase
@@ -113,7 +128,6 @@ export function ReviewsSection({ listingId, canRespond, onChanged }: ReviewsSect
 
   const errors = {
     name: name.trim().length >= 2 ? undefined : "Enter your name (first name is what shows).",
-    email: EMAIL_PATTERN.test(email.trim()) ? undefined : "Enter a valid email address.",
     rating: rating >= 1 ? undefined : "Pick a star rating.",
     title: title.trim().length >= 3 ? undefined : "Give your review a short title.",
     body: body.trim().length >= 10 ? undefined : "Say a bit more (10 characters minimum).",
@@ -125,26 +139,22 @@ export function ReviewsSection({ listingId, canRespond, onChanged }: ReviewsSect
     setShowErrors(true);
     if (hasErrors) return;
     setSubmitting(true);
-    const { error } = await supabase.from("reviews").insert({
-      listing_id: listingId,
-      reviewer_email: email.trim().toLowerCase(),
-      reviewer_name: name.trim(),
-      rating,
-      title: title.trim(),
-      body: body.trim(),
+    // Server derives the email and re-checks the verified purchase (migration 012).
+    const { error } = await supabase.rpc("post_review", {
+      p_listing_id: listingId,
+      p_rating: rating,
+      p_title: title.trim(),
+      p_body: body.trim(),
+      p_reviewer_name: name.trim(),
     });
     setSubmitting(false);
     if (error) {
-      if (error.code === "23505") {
-        toast.error("You already reviewed this drop. One review per person.");
-      } else {
-        toast.error(error.message);
-      }
+      toast.error(error.message);
       return;
     }
-    setSavedEmail(email);
     toast.success("Review posted. Thanks for keeping clubs honest!");
     setFormOpen(false);
+    setEligible(false);
     setRating(0);
     setTitle("");
     setBody("");
@@ -179,9 +189,13 @@ export function ReviewsSection({ listingId, canRespond, onChanged }: ReviewsSect
         ) : (
           <p className="text-sm text-ink-muted">No reviews yet.</p>
         )}
-        <Button variant={formOpen ? "ghost" : "primary"} size="sm" onClick={() => setFormOpen((open) => !open)}>
-          {formOpen ? "Close" : "Write a review"}
-        </Button>
+        {isClub ? null : eligible ? (
+          <Button variant={formOpen ? "ghost" : "primary"} size="sm" onClick={() => setFormOpen((open) => !open)}>
+            {formOpen ? "Close" : "Write a review"}
+          </Button>
+        ) : (
+          <span className="text-xs text-ink-muted">Only verified buyers can review.</span>
+        )}
       </div>
 
       <AnimatePresence>
@@ -204,40 +218,21 @@ export function ReviewsSection({ listingId, canRespond, onChanged }: ReviewsSect
                 </p>
               )}
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="review-name">Name</Label>
-                <Input
-                  id="review-name"
-                  value={name}
-                  invalid={showErrors && Boolean(errors.name)}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Only your first name is shown"
-                  autoComplete="name"
-                />
-                {showErrors && errors.name && (
-                  <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-                    {errors.name}
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label htmlFor="review-email">Email</Label>
-                <Input
-                  id="review-email"
-                  type="email"
-                  value={email}
-                  invalid={showErrors && Boolean(errors.email)}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Never shown publicly"
-                  autoComplete="email"
-                />
-                {showErrors && errors.email && (
-                  <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-                    {errors.email}
-                  </p>
-                )}
-              </div>
+            <div className="mt-4">
+              <Label htmlFor="review-name">Name</Label>
+              <Input
+                id="review-name"
+                value={name}
+                invalid={showErrors && Boolean(errors.name)}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Only your first name is shown"
+                autoComplete="name"
+              />
+              {showErrors && errors.name && (
+                <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
+                  {errors.name}
+                </p>
+              )}
             </div>
             <div className="mt-4">
               <Label htmlFor="review-title">Title</Label>
