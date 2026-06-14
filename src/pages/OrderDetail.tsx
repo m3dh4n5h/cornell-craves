@@ -43,7 +43,7 @@ export default function OrderDetail() {
 
   // v4: order details require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login?intent=student&next=/orders" replace />;
   }
 
   if (authLoading || loading) {

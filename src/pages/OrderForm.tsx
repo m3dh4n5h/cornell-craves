@@ -12,7 +12,7 @@ import { formatPrice } from "@/lib/format";
 import { isValidNetid } from "@/lib/orders";
 import { AllergenIcon } from "@/components/AllergenIcon";
 import { SplitOrderToggle } from "@/components/SplitOrderToggle";
-import { SplitTypeSelector } from "@/components/SplitTypeSelector";
+import { SplitTypeSelector, validSplitSizes } from "@/components/SplitTypeSelector";
 import { GroupInviteLink } from "@/components/GroupInviteLink";
 import { GoogleButton } from "@/components/GoogleButton";
 import { EmptyState } from "@/components/EmptyState";
@@ -242,6 +242,15 @@ export default function OrderForm() {
   }
 
   const splitItem = items.find((item) => item.name === splitItemName) ?? null;
+  const groupsEnabled = listing.clubs?.groups_enabled ?? true;
+  const splitItemQty = Math.max(1, splitItem?.quantity ?? 1);
+  const splitUnitsPerPerson = splitType > 0 ? Math.floor(splitItemQty / splitType) : 0;
+  // Selecting an item snaps the split size to its smallest valid divisor.
+  const selectSplitItem = (name: string, quantity: number) => {
+    setSplitItemName(name);
+    const sizes = validSplitSizes(quantity);
+    setSplitType(sizes[0] ?? 2);
+  };
 
   const createGroup = async () => {
     if (!listing || !splitItem) {
@@ -284,7 +293,8 @@ export default function OrderForm() {
           <h1 className="mt-5 text-center text-2xl font-extrabold">Split order started</h1>
           <p className="mt-3 text-center text-sm text-ink-muted">
             Share this link. When {splitType} people are in, everyone gets 24 hours to pay
-            their {splitItem ? formatPrice(splitItem.price / splitType) : "share"}.
+            their {splitItem ? formatPrice(splitItem.price / splitType) : "share"} and takes home{" "}
+            {splitUnitsPerPerson} {splitUnitsPerPerson === 1 ? "unit" : "units"}.
           </p>
           <div className="mt-5">
             <GroupInviteLink token={createdGroup.token} />
@@ -414,6 +424,11 @@ export default function OrderForm() {
                         <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
                       ))}
                       <span className="truncate">{item.name}</span>
+                      {(item.quantity ?? 1) > 1 && (
+                        <span className="shrink-0 text-xs font-normal text-ink-muted">
+                          {"·"} {item.quantity} in a box
+                        </span>
+                      )}
                     </p>
                     <p className="font-mono text-xs text-ink-muted">{formatPrice(item.price)}</p>
                   </div>
@@ -453,7 +468,9 @@ export default function OrderForm() {
           <FieldError message={showErrors ? errors.items : undefined} />
         </section>
 
-        {/* Split order mode */}
+        {/* Split order mode (hidden when the club has disabled group ordering) */}
+        {groupsEnabled && (
+        <>
         <SplitOrderToggle enabled={splitMode} onChange={setSplitMode} />
 
         {splitMode && (
@@ -475,18 +492,24 @@ export default function OrderForm() {
             ) : (
               <div>
                 <h2 className="text-base font-bold">What are you splitting?</h2>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Only items that divide evenly can be split, so everyone gets whole units.
+                </p>
                 <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label="Item to split">
                   {items.map((item) => {
                     const selected = splitItemName === item.name;
+                    const qty = Math.max(1, item.quantity ?? 1);
+                    const splittable = validSplitSizes(qty).length > 0;
                     return (
                       <button
                         key={item.name}
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        onClick={() => setSplitItemName(item.name)}
+                        disabled={!splittable}
+                        onClick={() => selectSplitItem(item.name, qty)}
                         className={cn(
-                          "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.98]",
+                          "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45",
                           selected
                             ? "border-primary-dark bg-surface-raised"
                             : "border-border bg-surface-raised/60 hover-fine:border-primary",
@@ -497,9 +520,14 @@ export default function OrderForm() {
                             <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
                           ))}
                           <span className="truncate">{item.name}</span>
+                          {qty > 1 && (
+                            <span className="shrink-0 text-xs font-normal text-ink-muted">
+                              {"·"} {qty} in a box
+                            </span>
+                          )}
                         </span>
                         <span className="shrink-0 font-mono text-sm font-bold">
-                          {formatPrice(item.price)}
+                          {splittable ? formatPrice(item.price) : "Can't split"}
                         </span>
                       </button>
                     );
@@ -511,9 +539,14 @@ export default function OrderForm() {
                     <Label>Split how many ways?</Label>
                     <SplitTypeSelector
                       itemPrice={splitItem.price}
+                      itemQuantity={splitItemQty}
                       value={splitType}
                       onChange={setSplitType}
                     />
+                    <p className="mt-1.5 text-xs text-ink-muted">
+                      Each person pays {formatPrice(splitItem.price / splitType)} and takes home{" "}
+                      {splitUnitsPerPerson} of {splitItemQty} units.
+                    </p>
                   </div>
                 )}
 
@@ -544,6 +577,8 @@ export default function OrderForm() {
               </div>
             )}
           </section>
+        )}
+        </>
         )}
 
         {!splitMode && (

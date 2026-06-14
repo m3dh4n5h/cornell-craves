@@ -248,6 +248,34 @@ async function requireClubUser(authHeader: string | null): Promise<string> {
   return data.user.id;
 }
 
+// Deletes the CALLER's own account. The caller is identified from their JWT, so
+// a user can only ever delete themselves. Removes their craving subscription
+// (keyed by email, so it won't cascade) then hard-deletes the auth user; FK
+// cascades remove the club/student row and everything hanging off it. Needs the
+// service role — which is exactly why this lives in the function, not an RPC.
+async function deleteAccount(authHeader: string | null): Promise<{ deleted: boolean }> {
+  if (!authHeader?.startsWith("Bearer ")) throw new Error("Missing authorization");
+  const { data, error } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+  if (error || !data.user) throw new Error("Invalid session");
+  const userId = data.user.id;
+
+  const emails = new Set<string>();
+  if (data.user.email) emails.add(data.user.email.toLowerCase());
+  const { data: profile } = await supabase
+    .from("users_extended")
+    .select("cornell_email")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profile?.cornell_email) emails.add(profile.cornell_email.toLowerCase());
+  if (emails.size > 0) {
+    await supabase.from("cravings").delete().in("email", [...emails]);
+  }
+
+  const { error: delError } = await supabase.auth.admin.deleteUser(userId);
+  if (delError) throw new Error(delError.message);
+  return { deleted: true };
+}
+
 // ---------- Order emails + actions ----------
 
 async function orderContext(listingId: string) {
@@ -996,6 +1024,11 @@ Deno.serve(async (req) => {
     if (body.action === "reactivate_group" && typeof body.group_id === "string") {
       const result = await reactivateGroup(body.group_id, req.headers.get("Authorization"));
       return Response.json(result);
+    }
+
+    if (body.action === "delete_account") {
+      const result = await deleteAccount(req.headers.get("Authorization"));
+      return Response.json({ ok: true, ...result });
     }
 
     // Called hourly by pg_cron with the service role key.

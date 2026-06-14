@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import { useClub } from "@/hooks/useClub";
+import { ClubProvider, useClub } from "@/hooks/useClub";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { Navbar } from "@/components/Navbar";
 import { BottomNav } from "@/components/BottomNav";
@@ -130,6 +130,7 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
+        <ClubProvider>
         <ProfileProvider>
         <OnboardingGate />
         <RoleGate />
@@ -179,6 +180,7 @@ export default function App() {
         <BottomNav />
         <Toaster />
         </ProfileProvider>
+        </ClubProvider>
       </AuthProvider>
     </BrowserRouter>
   );

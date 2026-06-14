@@ -88,7 +88,7 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
         <div className="mt-4 rounded-xl border border-accent/40 bg-accent/10 p-3 text-sm text-ink">
           <span className="font-semibold">Payment handle recently updated.</span> This club
           changed its Venmo/Zelle after this drop was posted. Confirm the current handle with the
-          club before sending money — Cornell Craves only displays club-provided details and is not
+          club before sending money. Cornell Craves only displays club-provided details and is not
           responsible for payments sent to an outdated or incorrect handle.
         </div>
       )}
@@ -148,6 +148,11 @@ function ItemsTab({ listing }: { listing: ListingWithClub }) {
                   <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
                 ))}
                 <span className="truncate">{item.name}</span>
+                {(item.quantity ?? 1) > 1 && (
+                  <span className="shrink-0 text-xs font-normal text-ink-muted">
+                    {"·"} {item.quantity} in a box
+                  </span>
+                )}
               </h3>
               <span className="shrink-0 font-mono text-lg font-bold">{formatPrice(item.price)}</span>
             </div>

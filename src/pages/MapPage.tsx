@@ -60,7 +60,7 @@ export default function MapPage() {
     const { data, error } = await supabase
       .from("listings")
       .select(
-        "*, clubs(name, venmo, zelle_phone), campus_locations(name, latitude, longitude, pickup_type)",
+        "*, clubs(name, venmo, zelle_phone, groups_enabled), campus_locations(name, latitude, longitude, pickup_type)",
       )
       .eq("active", true)
       .gt("expires_at", nowIso)

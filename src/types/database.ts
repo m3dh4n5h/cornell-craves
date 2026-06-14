@@ -14,6 +14,8 @@ export type DietaryTagId =
 export type ListingItem = {
   name: string;
   price: number;
+  /** Units in a box (a dozen = 12). Defaults to 1; used for even group splits. */
+  quantity?: number;
   dietary_tags?: DietaryTagId[];
 };
 
@@ -24,6 +26,7 @@ export type Club = {
   venmo: string | null;
   zelle_phone: string | null;
   approved: boolean;
+  groups_enabled: boolean;
   created_at: string;
 };
 
@@ -57,7 +60,7 @@ export type Listing = {
 };
 
 export type ListingWithClub = Listing & {
-  clubs: Pick<Club, "name" | "venmo" | "zelle_phone"> | null;
+  clubs: Pick<Club, "name" | "venmo" | "zelle_phone" | "groups_enabled"> | null;
   campus_locations?: Pick<CampusLocation, "name" | "latitude" | "longitude" | "pickup_type"> | null;
 };
 
@@ -231,6 +234,7 @@ export type OrderGroup = {
   listing_id: string;
   item_name: string;
   item_price: number;
+  item_quantity: number;
   split_type: number;
   total_people: number;
   filled_count: number;
@@ -278,6 +282,7 @@ export type GroupDetails = OrderGroup & {
   club_venmo: string | null;
   club_zelle: string | null;
   share_amount: number;
+  units_per_person?: number;
   open_token: string | null;
   members: GroupMemberView[];
   // Present depending on which RPC returned it:
@@ -316,6 +321,7 @@ type ClubInsert = {
   venmo?: string | null;
   zelle_phone?: string | null;
   approved?: boolean;
+  groups_enabled?: boolean;
   created_at?: string;
 };
 

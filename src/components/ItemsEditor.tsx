@@ -6,10 +6,12 @@ import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { cn } from "@/lib/utils";
 import type { DietaryTagId, ListingItem } from "@/types/database";
 
-/** Form-level draft: prices stay strings while typing, converted on submit. */
+/** Form-level draft: prices/quantities stay strings while typing, converted on submit. */
 export interface ItemDraft {
   name: string;
   price: string;
+  /** Units in a box (e.g. a dozen = 12). Enables even group splits. */
+  quantity: string;
   dietary_tags: DietaryTagId[];
 }
 
@@ -38,7 +40,7 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
   };
 
   const addItem = () => {
-    onChange([...items, { name: "", price: "", dietary_tags: [] }]);
+    onChange([...items, { name: "", price: "", quantity: "1", dietary_tags: [] }]);
   };
 
   return (
@@ -77,6 +79,23 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
                   aria-label={`Item ${index + 1} price in dollars`}
                   className="pl-7 font-mono"
                 />
+              </div>
+              <div className="relative w-24 shrink-0">
+                <Input
+                  value={item.quantity}
+                  onChange={(e) => updateItem(index, { quantity: e.target.value })}
+                  placeholder="1"
+                  inputMode="numeric"
+                  aria-label={`Item ${index + 1} units per box`}
+                  title="Units in a box (a dozen = 12). Enables even group splits."
+                  className="pr-12 font-mono"
+                />
+                <span
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-muted"
+                  aria-hidden="true"
+                >
+                  /box
+                </span>
               </div>
               <Button
                 type="button"
@@ -135,16 +154,19 @@ export function parseItemDrafts(drafts: ItemDraft[]): ListingItem[] {
         name: draft.name.trim(),
         price: Number.parseFloat(draft.price) || 0,
       };
+      const quantity = Math.max(1, Number.parseInt(draft.quantity, 10) || 1);
+      if (quantity > 1) item.quantity = quantity;
       if (draft.dietary_tags.length > 0) item.dietary_tags = draft.dietary_tags;
       return item;
     });
 }
 
 export function toItemDrafts(items: ListingItem[] | null): ItemDraft[] {
-  if (!items || items.length === 0) return [{ name: "", price: "", dietary_tags: [] }];
+  if (!items || items.length === 0) return [{ name: "", price: "", quantity: "1", dietary_tags: [] }];
   return items.map((item) => ({
     name: item.name,
     price: String(item.price),
+    quantity: String(item.quantity ?? 1),
     dietary_tags: item.dietary_tags ?? [],
   }));
 }

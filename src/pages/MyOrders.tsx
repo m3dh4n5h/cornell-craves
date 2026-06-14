@@ -125,6 +125,12 @@ function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
           <p className="mt-1 text-sm">
             Your share:{" "}
             <span className="font-mono font-bold">{formatPrice(Number(group.share_amount))}</span>
+            {group.units_per_person != null && group.units_per_person > 0 && (
+              <span className="text-ink-muted">
+                {" "}
+                for {group.units_per_person} {group.units_per_person === 1 ? "unit" : "units"}
+              </span>
+            )}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge variant={status.variant}>{status.label}</Badge>
@@ -223,7 +229,7 @@ export default function MyOrders() {
 
   // v4: orders require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login?intent=student&next=/orders" replace />;
   }
 
   if (authLoading || loading) {

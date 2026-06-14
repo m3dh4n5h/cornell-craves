@@ -1,19 +1,35 @@
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+/**
+ * Valid group sizes for an item: every divisor of its box quantity that is at
+ * least 2, so each member gets a whole number of units. A quantity of 1 (or
+ * none) yields no sizes, so that item cannot be split.
+ */
+export function validSplitSizes(quantity: number): number[] {
+  if (!Number.isFinite(quantity) || quantity < 2) return [];
+  const sizes: number[] = [];
+  for (let n = 2; n <= quantity; n += 1) {
+    if (quantity % n === 0) sizes.push(n);
+  }
+  return sizes;
+}
+
 interface SplitTypeSelectorProps {
   itemPrice: number;
+  itemQuantity: number;
   value: number;
   onChange: (value: number) => void;
 }
 
-const SPLIT_OPTIONS = [2, 3, 4];
+export function SplitTypeSelector({ itemPrice, itemQuantity, value, onChange }: SplitTypeSelectorProps) {
+  const sizes = validSplitSizes(itemQuantity);
 
-export function SplitTypeSelector({ itemPrice, value, onChange }: SplitTypeSelectorProps) {
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Split between how many people">
-      {SPLIT_OPTIONS.map((people) => {
+      {sizes.map((people) => {
         const selected = value === people;
+        const units = itemQuantity / people;
         return (
           <button
             key={people}
@@ -30,7 +46,7 @@ export function SplitTypeSelector({ itemPrice, value, onChange }: SplitTypeSelec
           >
             <span className="text-sm font-bold">{people} people</span>
             <span className={cn("font-mono text-xs", selected ? "opacity-80" : "text-ink-muted")}>
-              {formatPrice(itemPrice / people)} each
+              {formatPrice(itemPrice / people)} each, {units} {units === 1 ? "unit" : "units"}
             </span>
           </button>
         );

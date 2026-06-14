@@ -29,7 +29,7 @@ export default function Cravings() {
 
   // Craving subscriptions require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login?intent=student&next=/cravings" replace />;
   }
 
   const emailError = EMAIL_PATTERN.test(email.trim()) ? undefined : "Enter a valid email address.";

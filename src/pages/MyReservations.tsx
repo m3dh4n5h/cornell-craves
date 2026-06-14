@@ -206,7 +206,7 @@ export default function MyReservations() {
 
   // v4: pickups require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login?intent=student&next=/reservations" replace />;
   }
 
   const now = Date.now();

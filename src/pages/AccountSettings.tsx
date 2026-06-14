@@ -172,10 +172,12 @@ export default function AccountSettings() {
     );
     if (!ok) return;
     setDeleting(true);
-    const { error } = await supabase.rpc("delete_my_account");
-    if (error) {
+    const { data, error } = await supabase.functions.invoke("notify-cravings", {
+      body: { action: "delete_account" },
+    });
+    if (error || (data && data.ok === false)) {
       setDeleting(false);
-      toast.error(error.message);
+      toast.error(error?.message ?? data?.error ?? "Could not delete account");
       return;
     }
     await signOut();
@@ -397,12 +399,26 @@ export default function AccountSettings() {
 function ClubAccount({ club }: { club: Club }) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
+  const { refetch: refetchClub } = useClub();
   const [venmo, setVenmo] = useState(club.venmo ?? "");
   const [zelle, setZelle] = useState(club.zelle_phone ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
   const [consent, setConsent] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [togglingGroups, setTogglingGroups] = useState(false);
+
+  const setGroupsEnabled = async (enabled: boolean) => {
+    setTogglingGroups(true);
+    const { error } = await supabase.from("clubs").update({ groups_enabled: enabled }).eq("id", club.id);
+    setTogglingGroups(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success(enabled ? "Group ordering turned on" : "Group ordering turned off");
+  };
 
   const normalizedVenmo = venmo.trim().replace(/^@/, "");
   const normalizedZelle = zelle.trim();
@@ -466,10 +482,12 @@ function ClubAccount({ club }: { club: Club }) {
     );
     if (!ok) return;
     setDeleting(true);
-    const { error } = await supabase.rpc("delete_my_account");
-    if (error) {
+    const { data, error } = await supabase.functions.invoke("notify-cravings", {
+      body: { action: "delete_account" },
+    });
+    if (error || (data && data.ok === false)) {
       setDeleting(false);
-      toast.error(error.message);
+      toast.error(error?.message ?? data?.error ?? "Could not delete account");
       return;
     }
     await signOut();
@@ -504,6 +522,25 @@ function ClubAccount({ club }: { club: Club }) {
         <p className="text-sm text-ink-muted">{club.email}</p>
       </div>
 
+      <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+        <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
+          <span>
+            <span className="block text-sm font-bold">Group ordering &amp; splitting</span>
+            <span className="block text-xs text-ink-muted">
+              Let students split an item with friends. Turn off to only accept solo orders.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={club.groups_enabled}
+            disabled={togglingGroups}
+            onChange={(e) => void setGroupsEnabled(e.target.checked)}
+            className="size-5 shrink-0 accent-(--color-primary-dark)"
+            aria-label="Enable group ordering and splitting"
+          />
+        </label>
+      </div>
+
       <form onSubmit={save} className="mt-6 space-y-4">
         <div>
           <Label htmlFor="club-venmo">Venmo handle</Label>
@@ -536,7 +573,7 @@ function ClubAccount({ club }: { club: Club }) {
           <div className="rounded-2xl border border-accent/40 bg-accent/10 p-4">
             <p className="text-sm font-semibold text-ink">You have a live drop right now.</p>
             <p className="mt-1 text-sm text-ink-muted">
-              Buyers may already have your previous handle. You — not Cornell Craves — are
+              Buyers may already have your previous handle. You (not Cornell Craves) are
               solely responsible for any funds sent to either the old or the new Venmo/Zelle,
               and for reconciling payments across both. Cornell Craves only displays the
               details you provide and never holds, processes, or transfers money. Your live
