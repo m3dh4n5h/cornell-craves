@@ -143,3 +143,86 @@ Date: June 2026. Worked the `CLAUDE_CODE_AUDIT_PROMPT.md` checklist end to end.
 4. **Camera scanner** — test on Safari macOS, Safari iOS, and Chrome with a real pass.
 5. **CSP** — open the deployed site's console on every page; relax `connect-src`/`img-src` in `vercel.json` only if a legitimate host is blocked.
 6. **Apple Wallet passes** — still need the paid Apple Developer cert; out of scope.
+
+---
+
+# Feature Batch 2
+
+Stack/security model unchanged. New SQL as numbered migrations `010`–`016`; hand-written
+types in `src/types/database.ts` updated to match; RLS on every new table; sensitive writes
+behind `SECURITY DEFINER` RPCs; `tsc --noEmit` + `npm run build` green after every change.
+
+## What shipped
+
+- **#0 — "Could not verify" toast (partial / code side):** `ClubOrders.tsx` now unwraps the
+  edge function's real error via `readFnError()` (reads `FunctionsHttpError.context.json().error`)
+  for verify-payment, verify-share, reactivate, and scan — so the dashboard surfaces the actual
+  cause (e.g. `QR_SECRET is not set`, a Brevo sender mismatch) instead of a generic message. The
+  **root-cause fix is ops-side** and needs the live Edge Function logs + Brevo config (see checklist).
+- **#1 — Per-listing contact email:** migration `011` adds `listings.contact_email`; required input
+  on every new/edited listing (never prefilled); shown on the detail page only.
+- **#2/#3 — Multiple pickup spots + per-spot order type:** migration `014` adds
+  `listing_pickup_spots (listing_id, location_id, order_type ∈ {same_day, preorder})` with
+  public-read / owning-club-write RLS, and backfills existing single-location drops. The legacy
+  `listings.pickup_location_id` is kept and mirrored to the first spot for back-compat. The form
+  has a `SpotsEditor` (add several locations, tag each); feed cards and map show order-type badges.
+- **#4 — Multiple pickup days:** the form's `SlotsEditor` already supports several `pickup_slots`
+  rows; relabeled "Pickup days" and surfaced on detail (calendar) and map (next-pickup line).
+- **#5 — Editable later:** edit form loads existing contact email, spots (+order types), and days.
+- **#6 — Full item names:** removed the clamp on listing-detail item names (wrap, no ellipsis).
+- **#7/#8/#13 — Reviews & Q&A clubs-reply-only + verified-purchase reviews:** migration `012`
+  drops the open INSERT policies; reviews now post only through `post_review` (SECURITY DEFINER:
+  requires auth, blocks clubs, requires an order on that listing with `payment_verified` or
+  picked-up, one per email). `can_i_review` drives UI gating ("Only verified buyers can review.").
+  Q&A INSERT policy blocks club owners. The detail page hides both write forms for club accounts.
+- **#9/#10/#11 — Map:** click a pin → bottom-sheet popup listing each drop with brand, price,
+  order-type badge, next pickup day, and a link. Pins are expanded across all of a listing's spots
+  and only appear when a pickup is today/upcoming (`hasUpcomingPickup`, tied to `pickup_slots`);
+  drops with no scheduled days stay pinned until they expire. CARTO Voyager tiles retained (no new
+  host → no CSP change).
+- **#12 — RPCC pin:** migration `010` corrects `RPCC lobby` to `(42.45499, -76.47787)`.
+- **#14 — Club logo upload:** migration `015` adds `clubs.logo_url` and a public-read /
+  owner-write `club-logos` Storage bucket (owner-write keyed on the `<club_id>/…` folder). Upload UI
+  on the club Account page; logo shown on feed cards + detail. Supabase host added to `img-src` in
+  **both** `vercel.json` and `public/_headers`.
+- **#15 — Orders dashboard grouped by listing:** `ClubOrders.tsx` now renders collapsible
+  per-listing sections (order count, "N owe payment" badge), each holding that listing's orders and
+  split-order groups, with verify-payment / verify-share / reactivate inside. Listing + status
+  filters still apply within the grouping; the QR scanner stays global (one camera).
+- **#16 — Brand list:** removed "Other" and "Nothing Bundt Cakes", added "Cinnabon".
+- **#17 — Request-a-brand:** migration `016` adds `brand_requests` and a `brands` table (global
+  additions) + `request_brand` / `decide_brand_request` (admin-only) RPCs. Clubs can request a brand
+  from the listing form; `/admin` lists pending requests with a rename field and Deploy-to-all /
+  Approve-once / Reject. The brand list is now data-driven via `useBrandOptions()` (static list ∪
+  approved-global brands), so a deployed brand appears in the listing form and every cravings screen.
+- **#18 — Craving sync:** migration `013` adds `get_my_craving()` and makes `upsert_my_craving`
+  also mirror brands into `users_extended.preferences_json`. The Cravings page, Account tab, and
+  `/preferences` all load via `get_my_craving` and save through the same RPC, so they never diverge.
+
+## Verification
+
+- `npx tsc --noEmit` ✅ (strict, `noUnusedLocals`/`noUnusedParameters`) and `npm run build` ✅ after
+  every change.
+- **Runtime/preview not run for Batch 2:** migrations `010`–`016` are new files not yet applied to
+  the Supabase project in `.env.local`, and the app's read queries now embed the new tables
+  (`listing_pickup_spots`, `pickup_slots`, `clubs.logo_url`) and call new RPCs — so a preview boot
+  against the un-migrated backend would error on missing objects rather than exercise the code. Run
+  the live checklist below after applying the migrations.
+
+## Batch 2 live-only checklist (run against your Supabase, in order)
+
+1. **Apply migrations `010`–`016`** in the SQL editor (after `001`–`009`). `015` creates the
+   `club-logos` Storage bucket and policies; confirm the bucket exists and is public.
+2. **#0 root cause:** trigger Verify payment, read the Edge Function logs for the now-surfaced error;
+   set `QR_SECRET` and a `FROM_EMAIL` that matches a verified Brevo sender; confirm the QR email sends.
+3. **Pickup spots/days:** post a listing with 2 spots (one same-day, one pre-order) + 2 pickup days +
+   a contact email; confirm feed badges, detail chips, and map popups/pins reflect it; edit and confirm.
+4. **Reviews/Q&A:** as a club, confirm you can reply but not write; as a verified buyer, confirm you can.
+5. **Map:** confirm pins appear only on pickup days, popups open on click, and the RPCC pin is correct.
+6. **Logo:** upload a club logo; confirm it shows on the feed card + detail and isn't CSP-blocked.
+7. **Brand request:** request a brand as a club, deploy-to-all in `/admin`, confirm it appears in the
+   listing form datalist and the cravings chips, and that one craving screen's save shows on the others.
+8. **#19 email deliverability (ops/DNS):** authenticate a sending domain in Brevo (SPF/DKIM/DMARC) and
+   point `FROM_EMAIL` at it; redeploy the function. No app code change.
+9. **Screenshots:** capture the new flows at iPhone + desktop widths into `audit/screenshots/` on the
+   first live run.

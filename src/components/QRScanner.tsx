@@ -184,14 +184,14 @@ export function QRScanner({ onToken, busy = false }: QRScannerProps) {
       <canvas ref={canvasRef} className="hidden" />
 
       <form onSubmit={submitManual} className="mt-4">
-        <Label htmlFor="manual-token">Or enter the pass code</Label>
+        <Label htmlFor="manual-token">Or enter the 10-character pickup code</Label>
         <div className="flex gap-2">
           <Input
             id="manual-token"
             value={manualToken}
             onChange={(e) => setManualToken(e.target.value)}
-            placeholder="Paste the code from the email"
-            className="flex-1 font-mono text-sm"
+            placeholder="e.g. 7F3K9Q2X1B"
+            className="flex-1 font-mono text-sm uppercase"
           />
           <Button type="submit" variant="secondary" loading={busy} disabled={!manualToken.trim()}>
             Check

@@ -342,16 +342,19 @@ async function verifyPayment(orderId: string, authHeader: string | null): Promis
     .eq("order_id", order.id);
 
   const tokens: Record<string, string> = {};
+  const codes: Record<string, string> = {};
   for (const row of qrRows ?? []) {
     const token = await signToken({
       o: order.id,
       t: row.user_type as "orderer" | "proxy",
       ts: Date.now(),
     });
+    const pickupCode = genPickupCode();
     tokens[row.user_type] = token;
+    codes[row.user_type] = pickupCode;
     const { error } = await supabase
       .from("order_qr_codes")
-      .update({ qr_encrypted: token, is_active: true })
+      .update({ qr_encrypted: token, is_active: true, pickup_code: pickupCode })
       .eq("id", row.id);
     if (error) throw error;
   }
@@ -372,7 +375,7 @@ async function verifyPayment(orderId: string, authHeader: string | null): Promis
         `${escapeHtml(club?.name ?? "The club")} confirmed your payment for ${escapeHtml(listing.title)}. Show this QR at pickup (${escapeHtml(where)}):`,
       ) +
         `<p style="margin:0 0 16px;"><img src="${qrImageUrl(tokens.orderer)}" alt="Your QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
-        paragraph(`Pass code, if the scanner is fussy: <span style="font-family:monospace;font-size:11px;word-break:break-all;">${escapeHtml(tokens.orderer)}</span>`) +
+        paragraph(`Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(codes.orderer)}</span>`) +
         (order.proxy_name
           ? paragraph(
               `${escapeHtml(order.proxy_name)} got their own pass by email. You can disable it anytime from your order page.`,
@@ -393,7 +396,7 @@ async function verifyPayment(orderId: string, authHeader: string | null): Promis
         `${escapeHtml(order.orderer_name)} asked you to pick up ${escapeHtml(itemsSummary(order.items_json))} from ${escapeHtml(listing.title)} (${escapeHtml(club?.name ?? "a Cornell club")}). Show this QR at ${escapeHtml(where)}:`,
       ) +
         `<p style="margin:0 0 16px;"><img src="${qrImageUrl(tokens.proxy)}" alt="Proxy QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
-        paragraph(`Pass code, if the scanner is fussy: <span style="font-family:monospace;font-size:11px;word-break:break-all;">${escapeHtml(tokens.proxy)}</span>`),
+        paragraph(`Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(codes.proxy)}</span>`),
       "See the listing",
       `${SITE_URL}/listing/${listing.id}`,
     );
@@ -467,10 +470,44 @@ async function scanGroupQr(
   return { result: "picked_up", message: "Share pass accepted. Hand over their portion!", order: summary, holder };
 }
 
+// 10-char Crockford base32 (no I/L/O/U). Random single-use code a club can type
+// instead of scanning. It's validated by lookup, not as a signature.
+function genPickupCode(): string {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (const b of bytes) out += alphabet[b % 32];
+  return out;
+}
+
+// Resolve a typed pickup code into the same payload a scanned token yields, so
+// the existing scan checks (ownership, active, already-used) still apply.
+async function resolvePickupCode(input: string): Promise<TokenPayload | null> {
+  const code = input.toUpperCase();
+  if (!/^[0-9A-Z]{10}$/.test(code)) return null;
+  const { data: qr } = await supabase
+    .from("order_qr_codes")
+    .select("order_id, user_type")
+    .eq("pickup_code", code)
+    .maybeSingle();
+  if (qr) return { o: qr.order_id as string, t: qr.user_type as string };
+  const { data: gm } = await supabase
+    .from("order_group_members")
+    .select("id, group_id")
+    .eq("pickup_code", code)
+    .maybeSingle();
+  if (gm) return { g: gm.group_id as string, m: gm.id as string };
+  return null;
+}
+
 async function scanQr(token: string, authHeader: string | null): Promise<Record<string, unknown>> {
   const userId = await requireClubUser(authHeader);
 
-  const payload = await verifyToken(token.trim());
+  let payload = await verifyToken(token.trim());
+  if (!payload) {
+    payload = await resolvePickupCode(token.trim());
+  }
   if (!payload) {
     return { result: "invalid", message: "Not a valid Cornell Craves pass" };
   }
@@ -520,6 +557,16 @@ async function scanQr(token: string, authHeader: string | null): Promise<Record<
   if (order.status === "cancelled") {
     return { result: "inactive", message: "This order was cancelled", order: summary, holder };
   }
+  // Either the orderer or the proxy picking up retires the whole order, so a
+  // second scan of the other pass is rejected here.
+  if (order.status === "picked_up") {
+    return {
+      result: "already_scanned",
+      message: "This order was already picked up.",
+      order: summary,
+      holder,
+    };
+  }
   if (!order.payment_verified || !qrRow.is_active) {
     return {
       result: "inactive",
@@ -542,6 +589,12 @@ async function scanQr(token: string, authHeader: string | null): Promise<Record<
     .from("order_qr_codes")
     .update({ scanned_at: now, scanned_by_user_type: payload.t })
     .eq("id", qrRow.id);
+  // Retire every pass on this order (orderer + proxy) so the other one can't be
+  // used after the first pickup.
+  await supabase
+    .from("order_qr_codes")
+    .update({ is_active: false })
+    .eq("order_id", order.id);
   await supabase
     .from("orders")
     .update({
@@ -700,9 +753,10 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
   }
 
   const token = await signToken({ g: group.id, m: memberId, ts: Date.now() });
+  const pickupCode = genPickupCode();
   await supabase
     .from("order_group_members")
-    .update({ status: "paid", qr_encrypted: token })
+    .update({ status: "paid", qr_encrypted: token, pickup_code: pickupCode })
     .eq("id", memberId);
 
   if (group.status !== "payment_in_progress") {
@@ -714,28 +768,38 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
     .select("id")
     .eq("group_id", group.id)
     .neq("status", "paid");
-  if ((remaining ?? []).length === 0) {
-    await supabase.from("order_groups").update({ status: "paid" }).eq("id", group.id);
+  // Passes go out only once the WHOLE group has paid — until then the club is
+  // just checking members off.
+  if ((remaining ?? []).length > 0) {
+    return { ok: true };
   }
 
-  // Email this member their personal pass.
+  await supabase.from("order_groups").update({ status: "paid" }).eq("id", group.id);
+
+  // Everyone has paid: email each member their individual pass.
+  const { data: members } = await supabase
+    .from("order_group_members")
+    .select("user_id, qr_encrypted, pickup_code")
+    .eq("group_id", group.id);
   const emails = await groupMemberEmails(group.id);
-  const target = emails.find((entry) => entry.user_id === member.user_id);
-  if (target) {
-    const where = locationName ?? "see the listing for pickup details";
+  const where = locationName ?? "see the listing for pickup details";
+  for (const m of members ?? []) {
+    const target = emails.find((entry) => entry.user_id === m.user_id);
+    if (!target || !m.qr_encrypted) continue;
     const html = emailShell(
-      "Share paid, here is your pass",
+      "Your group is fully paid — here is your pass",
       paragraph(
-        `${escapeHtml(club?.name ?? "The club")} confirmed your share of ${escapeHtml(group.item_name)} (${escapeHtml(listing.title)}). Show this QR at ${escapeHtml(where)}:`,
+        `${escapeHtml(club?.name ?? "The club")} confirmed everyone's share of ${escapeHtml(group.item_name)} (${escapeHtml(listing.title)}). Show this QR at ${escapeHtml(where)}:`,
       ) +
-        `<p style="margin:0 0 16px;"><img src="${qrImageUrl(token)}" alt="Your group QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
+        `<p style="margin:0 0 16px;"><img src="${qrImageUrl(m.qr_encrypted)}" alt="Your group QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
         paragraph(
-          `Pass code, if the scanner is fussy: <span style="font-family:monospace;font-size:11px;word-break:break-all;">${escapeHtml(token)}</span>`,
+          `Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(m.pickup_code ?? "")}</span>`,
         ),
       "View my group",
       `${SITE_URL}/orders`,
     );
     await sendEmail(target.email, `Your QR pass: ${group.item_name} split`, html);
+    await sleep(550);
   }
 
   return { ok: true };

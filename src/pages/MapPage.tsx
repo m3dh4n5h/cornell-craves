@@ -10,7 +10,7 @@ import { BrandFilter } from "@/components/BrandFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { brandInitials, brandTint } from "@/lib/brands";
-import { DIETARY_TAGS, DIETARY_TAG_IDS, listingDietaryTags } from "@/lib/dietary";
+import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { PICKUP_TYPE_LABELS } from "@/lib/orders";
 import {
   formatPickupDay,
@@ -98,9 +98,13 @@ export default function MapPage() {
       listings.filter((listing) => {
         if (selectedBrand && listing.brand !== selectedBrand) return false;
         if (dietaryFilter.length > 0) {
-          // OR logic: any selected tag present anywhere in the listing.
-          const tags = listingDietaryTags(listing.items);
-          if (!dietaryFilter.some((tag) => tags.includes(tag))) return false;
+          // AND logic: keep the listing only if at least one item satisfies
+          // EVERY selected restriction (someone vegetarian AND dairy-free needs
+          // an item that is both, not two separate items).
+          const matches = listing.items.some((item) =>
+            dietaryFilter.every((tag) => (item.dietary_tags ?? []).includes(tag)),
+          );
+          if (!matches) return false;
         }
         return true;
       }),
@@ -288,86 +292,89 @@ export default function MapPage() {
               </div>
             )}
 
-            <AnimatePresence>
-              {selectedGroup && (
-                <motion.div
-                  key={selectedGroup.key}
-                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={
-                    reduceMotion
-                      ? { opacity: 0, transition: { duration: 0.1 } }
-                      : { opacity: 0, y: 24, transition: { duration: 0.15 } }
-                  }
-                  transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-                  className="z-raised absolute inset-x-3 bottom-3 max-h-[45%] overflow-y-auto rounded-2xl border border-border bg-surface-raised/95 p-3 shadow-[0_8px_24px_oklch(18%_0.02_260/0.16)] backdrop-blur-md"
-                >
-                  <div className="flex items-center justify-between gap-2 px-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <h2 className="truncate text-sm font-bold">{selectedGroup.name}</h2>
-                      <Badge variant="neutral" className="shrink-0">
-                        {PICKUP_TYPE_LABELS[selectedGroup.pickupType]}
-                      </Badge>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedKey(null)}
-                      aria-label="Close location preview"
-                      className="rounded-full p-1 text-ink-muted hover-fine:bg-ink/10"
-                    >
-                      <X className="size-4" aria-hidden="true" />
-                    </button>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {selectedGroup.entries.map(({ listing, orderType }) => {
-                      const timeLeft = getTimeLeft(listing.expires_at);
-                      const range = priceRange(listing.items ?? []);
-                      const day = nextPickup(listing);
-                      return (
-                        <Link
-                          key={listing.id}
-                          to={`/listing/${listing.id}`}
-                          className="flex items-center gap-3 rounded-xl border border-border bg-surface-raised p-2.5 transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary active:scale-[0.99]"
-                        >
-                          <span
-                            className={cn(
-                              "flex size-10 shrink-0 items-center justify-center rounded-lg font-display text-sm font-extrabold text-ink/80",
-                              brandTint(listing.brand),
-                            )}
-                            aria-hidden="true"
-                          >
-                            {brandInitials(listing.brand)}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-bold">{listing.title}</span>
-                            <span className="block truncate text-xs text-ink-muted">
-                              {listing.brand}
-                              {range ? `, ${range}` : ""}
-                            </span>
-                            <span className="mt-1 flex flex-wrap items-center gap-1">
-                              {orderType && (
-                                <Badge variant={orderType === "same_day" ? "success" : "default"}>
-                                  {ORDER_TYPE_SHORT[orderType]}
-                                </Badge>
-                              )}
-                              {day && (
-                                <span className="text-xs font-semibold text-ink-muted">
-                                  Pickup {formatPickupDay(day)}
-                                </span>
-                              )}
-                            </span>
-                          </span>
-                          <Badge variant={timeLeft.urgent ? "urgent" : "neutral"}>{timeLeft.label}</Badge>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </>
         )}
       </div>
+
+      {/* Drop details render BELOW the map — the old on-map overlay clipped
+          awkwardly inside the rounded, overflow-hidden map container. */}
+      <AnimatePresence>
+        {selectedGroup && (
+          <motion.div
+            key={selectedGroup.key}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={
+              reduceMotion
+                ? { opacity: 0, transition: { duration: 0.1 } }
+                : { opacity: 0, y: 12, transition: { duration: 0.15 } }
+            }
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="mt-3 rounded-2xl border border-border bg-surface-raised p-3"
+          >
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-sm font-bold">{selectedGroup.name}</h2>
+                <Badge variant="neutral" className="shrink-0">
+                  {PICKUP_TYPE_LABELS[selectedGroup.pickupType]}
+                </Badge>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedKey(null)}
+                aria-label="Close location preview"
+                className="rounded-full p-1 text-ink-muted hover-fine:bg-ink/10"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="mt-2 space-y-2">
+              {selectedGroup.entries.map(({ listing, orderType }) => {
+                const timeLeft = getTimeLeft(listing.expires_at);
+                const range = priceRange(listing.items ?? []);
+                const day = nextPickup(listing);
+                return (
+                  <Link
+                    key={listing.id}
+                    to={`/listing/${listing.id}`}
+                    className="flex items-center gap-3 rounded-xl border border-border bg-surface-raised p-2.5 transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary active:scale-[0.99]"
+                  >
+                    <span
+                      className={cn(
+                        "flex size-10 shrink-0 items-center justify-center rounded-lg font-display text-sm font-extrabold text-ink/80",
+                        brandTint(listing.brand),
+                      )}
+                      aria-hidden="true"
+                    >
+                      {brandInitials(listing.brand)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold">{listing.title}</span>
+                      <span className="block truncate text-xs text-ink-muted">
+                        {listing.brand}
+                        {range ? `, ${range}` : ""}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-1">
+                        {orderType && (
+                          <Badge variant={orderType === "same_day" ? "success" : "default"}>
+                            {ORDER_TYPE_SHORT[orderType]}
+                          </Badge>
+                        )}
+                        {day && (
+                          <span className="text-xs font-semibold text-ink-muted">
+                            Pickup {formatPickupDay(day)}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <Badge variant={timeLeft.urgent ? "urgent" : "neutral"}>{timeLeft.label}</Badge>
+                  </Link>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

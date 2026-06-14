@@ -60,6 +60,17 @@ function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** How many buyers still owe payment in a listing section (solo + split). */
 function owedCount(orders: OrderRow[], groups: GroupDetails[]): number {
   const solo = orders.filter((order) => order.status === "pending_payment").length;
@@ -130,6 +141,10 @@ function OrderCard({
           Picked up by {order.picked_up_by_name} ({order.picked_up_by_email})
         </p>
       )}
+      <p className="mt-1 text-[11px] text-ink-muted">
+        Ordered {fmtDateTime(order.created_at)}
+        {order.picked_up_at ? ` · Picked up ${fmtDateTime(order.picked_up_at)}` : ""}
+      </p>
 
       {order.status === "pending_payment" && (
         <Button size="sm" className="mt-3" loading={verifying} onClick={onVerify}>
@@ -391,7 +406,7 @@ export default function ClubOrders() {
 
   const exportCsv = () => {
     const header =
-      "name,email,netid,qty,items,payment_method,payment_details,status,picked_up_by,timestamp";
+      "name,email,netid,qty,items,amount_paid,payment_method,payment_details,status,picked_up_by,ordered_at,picked_up_at";
     const listingTitle = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
     const rows = filtered.map((order) =>
       [
@@ -400,6 +415,7 @@ export default function ClubOrders() {
         csvEscape(order.orderer_netid ?? ""),
         String(orderQuantity(order.items_json)),
         csvEscape(`${listingTitle(order.listing_id)}: ${orderItemsSummary(order.items_json)}`),
+        formatPrice(Number(order.total)),
         order.payment_method,
         csvEscape(
           [
@@ -414,6 +430,7 @@ export default function ClubOrders() {
           order.picked_up_by_name ? `${order.picked_up_by_name} (${order.picked_up_by_email})` : "",
         ),
         order.created_at,
+        order.picked_up_at ?? "",
       ].join(","),
     );
     const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
