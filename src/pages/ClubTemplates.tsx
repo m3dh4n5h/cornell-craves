@@ -55,6 +55,7 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
   const [brand, setBrand] = useState(initial?.brand ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(initial?.items ?? null));
+  const [mode, setMode] = useState<RecurringTemplate["mode"]>(initial?.mode ?? "one_time");
   const [frequency, setFrequency] = useState<RecurringTemplate["frequency"]>(initial?.frequency ?? "weekly");
   const [nextRunDate, setNextRunDate] = useState(initial?.next_run_date ?? "");
   const [showErrors, setShowErrors] = useState(false);
@@ -77,8 +78,11 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
       brand: brand.trim(),
       description: description.trim() || null,
       items: parseItemDrafts(items),
+      mode,
       frequency,
-      next_run_date: nextRunDate || null,
+      next_run_date: mode === "auto" ? nextRunDate || null : null,
+      // Auto-recurring stays off until the club explicitly activates it.
+      auto_active: initial?.auto_active ?? false,
     };
     const { error } = initial
       ? await supabase.from("recurring_templates").update(payload).eq("id", initial.id)
@@ -155,39 +159,70 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
         )}
       </div>
 
-      <div className="mt-5 grid gap-5 sm:grid-cols-2">
-        <div>
-          <Label>Frequency</Label>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Frequency">
-            {FREQUENCIES.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={frequency === id}
-                onClick={() => setFrequency(id)}
-                className={cn(
-                  "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
-                  frequency === id
-                    ? "border-ink bg-ink text-surface-raised"
-                    : "border-border text-ink-muted hover-fine:border-primary",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="template-next-run">Next run date (optional)</Label>
-          <Input
-            id="template-next-run"
-            type="date"
-            value={nextRunDate}
-            onChange={(e) => setNextRunDate(e.target.value)}
-          />
+      <div className="mt-5">
+        <Label>How is it posted?</Label>
+        <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+          {(
+            [
+              { id: "one_time", title: "One-time", body: "You relaunch it by hand each time." },
+              { id: "auto", title: "Auto-recurring", body: "Recurs on a schedule once you turn it on." },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={mode === option.id}
+              onClick={() => setMode(option.id)}
+              className={cn(
+                "rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.98]",
+                mode === option.id
+                  ? "border-primary-dark bg-surface-raised"
+                  : "border-border bg-surface-raised/60 hover-fine:border-primary",
+              )}
+            >
+              <span className="block text-sm font-bold">{option.title}</span>
+              <span className="block text-xs text-ink-muted">{option.body}</span>
+            </button>
+          ))}
         </div>
       </div>
+
+      {mode === "auto" && (
+        <div className="mt-5 grid gap-5 sm:grid-cols-2">
+          <div>
+            <Label>Frequency</Label>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Frequency">
+              {FREQUENCIES.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={frequency === id}
+                  onClick={() => setFrequency(id)}
+                  className={cn(
+                    "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
+                    frequency === id
+                      ? "border-ink bg-ink text-surface-raised"
+                      : "border-border text-ink-muted hover-fine:border-primary",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="template-next-run">First run date (optional)</Label>
+            <Input
+              id="template-next-run"
+              type="date"
+              value={nextRunDate}
+              onChange={(e) => setNextRunDate(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 flex items-center justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
@@ -209,12 +244,22 @@ interface PostPanelProps {
 }
 
 function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) {
+  // Everything auto-fills from the template; the club confirms the date/time and
+  // can edit any field before it posts (build spec 5 #8).
+  const [title, setTitle] = useState(template.name);
+  const [brand, setBrand] = useState(template.brand);
+  const [description, setDescription] = useState(template.description ?? "");
+  const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(template.items));
   const [expiresAt, setExpiresAt] = useState(toDatetimeLocal(new Date(Date.now() + 6 * 3_600_000)));
   const [locationId, setLocationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const post = async (event: FormEvent) => {
     event.preventDefault();
+    if (!title.trim() || !brand.trim() || parseItemDrafts(items).length === 0) {
+      toast.error("Title, brand, and at least one item are required.");
+      return;
+    }
     if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
       toast.error("Pick an end time in the future.");
       return;
@@ -222,10 +267,10 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
     setSubmitting(true);
     const { error } = await supabase.from("listings").insert({
       club_id: template.club_id,
-      brand: template.brand,
-      title: template.name,
-      description: template.description,
-      items: template.items,
+      brand: brand.trim(),
+      title: title.trim(),
+      description: description.trim() || null,
+      items: parseItemDrafts(items),
       pickup_location_id: locationId || null,
       expires_at: new Date(expiresAt).toISOString(),
     });
@@ -234,21 +279,48 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
       toast.error(error.message);
       return;
     }
-    await supabase
-      .from("recurring_templates")
-      .update({ next_run_date: advanceDate(template.next_run_date, template.frequency) })
-      .eq("id", template.id);
+    if (template.mode === "auto") {
+      await supabase
+        .from("recurring_templates")
+        .update({ next_run_date: advanceDate(template.next_run_date, template.frequency) })
+        .eq("id", template.id);
+    }
     setSubmitting(false);
-    toast.success(`"${template.name}" is live on the feed`);
+    toast.success(`"${title.trim()}" is live on the feed`);
     onPosted();
   };
 
   return (
     <form onSubmit={post} className="rounded-2xl border border-primary-dark/40 bg-primary/10 p-4">
-      <h3 className="text-base font-bold">Post "{template.name}" now</h3>
+      <h3 className="text-base font-bold">Post from "{template.name}"</h3>
+      <p className="mt-1 text-xs text-ink-muted">
+        Pre-filled from your template. Set the date and time, tweak anything, then publish.
+      </p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
-          <Label htmlFor="post-expires">Ends at</Label>
+          <Label htmlFor="post-title">Title</Label>
+          <Input id="post-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="post-brand">Brand</Label>
+          <Input id="post-brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
+        </div>
+      </div>
+      <div className="mt-4">
+        <Label htmlFor="post-description">Description (optional)</Label>
+        <Textarea
+          id="post-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="mt-4">
+        <Label>Items and prices</Label>
+        <ItemsEditor items={items} onChange={setItems} />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="post-expires">Ends at (date &amp; time)</Label>
           <Input
             id="post-expires"
             type="datetime-local"
@@ -354,6 +426,27 @@ export default function ClubTemplates() {
     }
   };
 
+  // Explicitly turn auto-recurring on/off. Turning it on also opens the post
+  // flow so the club sets the first run's date/time right away (build spec 5 #8).
+  const toggleAuto = async (template: RecurringTemplate) => {
+    const next = !template.auto_active;
+    const { error } = await supabase
+      .from("recurring_templates")
+      .update({ auto_active: next })
+      .eq("id", template.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetch();
+    if (next) {
+      toast.success("Auto-posting on. Schedule the first drop below.");
+      setPostingId(template.id);
+    } else {
+      toast.success("Auto-posting off.");
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-10">
       <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-muted hover-fine:text-ink">
@@ -362,9 +455,9 @@ export default function ClubTemplates() {
       </Link>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Recurring templates</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Templates</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Save a fundraiser once, post it in two clicks every week.
+            Save a fundraiser once, then relaunch it in seconds — by hand or on a schedule.
           </p>
         </div>
         {formMode === "closed" && (
@@ -445,6 +538,7 @@ export default function ClubTemplates() {
                 onPost={() => setPostingId(template.id)}
                 onEdit={() => setFormMode(template.id)}
                 onToggleActive={() => void toggleActive(template)}
+                onToggleAuto={() => void toggleAuto(template)}
               />
             ))}
           </div>

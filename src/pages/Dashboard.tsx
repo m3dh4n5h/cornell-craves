@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
@@ -64,6 +64,7 @@ interface SlotDraft {
   end: string;
   max: string;
   reserved: number;
+  locationId: string;
 }
 
 function slotDraftValid(draft: SlotDraft): boolean {
@@ -75,9 +76,11 @@ function slotDraftValid(draft: SlotDraft): boolean {
 
 function SlotsEditor({
   slots,
+  locations,
   onChange,
 }: {
   slots: SlotDraft[];
+  locations: CampusLocation[];
   onChange: (slots: SlotDraft[]) => void;
 }) {
   const update = (index: number, patch: Partial<SlotDraft>) => {
@@ -88,7 +91,10 @@ function SlotsEditor({
     const base = new Date(Date.now() + 24 * 3_600_000);
     base.setMinutes(0, 0, 0);
     const end = new Date(base.getTime() + 3_600_000);
-    onChange([...slots, { start: toDatetimeLocal(base), end: toDatetimeLocal(end), max: "10", reserved: 0 }]);
+    onChange([
+      ...slots,
+      { start: toDatetimeLocal(base), end: toDatetimeLocal(end), max: "10", reserved: 0, locationId: "" },
+    ]);
   };
 
   return (
@@ -100,7 +106,7 @@ function SlotsEditor({
       )}
       {slots.map((slot, index) => (
         <div key={slot.id ?? `new-${index}`} className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 p-2.5">
-          <div className="min-w-40 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-40">
             <Label htmlFor={`slot-start-${index}`} className="mb-1 text-xs">
               Starts
             </Label>
@@ -109,10 +115,10 @@ function SlotsEditor({
               type="datetime-local"
               value={slot.start}
               onChange={(e) => update(index, { start: e.target.value })}
-              className="h-10"
+              className="h-10 w-full"
             />
           </div>
-          <div className="min-w-40 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-40">
             <Label htmlFor={`slot-end-${index}`} className="mb-1 text-xs">
               Ends
             </Label>
@@ -121,7 +127,7 @@ function SlotsEditor({
               type="datetime-local"
               value={slot.end}
               onChange={(e) => update(index, { end: e.target.value })}
-              className="h-10"
+              className="h-10 w-full"
             />
           </div>
           <div className="w-24">
@@ -135,6 +141,24 @@ function SlotsEditor({
               onChange={(e) => update(index, { max: e.target.value })}
               className="h-10 font-mono"
             />
+          </div>
+          <div className="min-w-0 flex-1 basis-full sm:basis-44">
+            <Label htmlFor={`slot-location-${index}`} className="mb-1 text-xs">
+              Pickup spot for this day
+            </Label>
+            <select
+              id={`slot-location-${index}`}
+              value={slot.locationId}
+              onChange={(e) => update(index, { locationId: e.target.value })}
+              className={SELECT_CLASS}
+            >
+              <option value="">No specific spot</option>
+              {locations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                </option>
+              ))}
+            </select>
           </div>
           {slot.reserved > 0 ? (
             <Badge variant="default" className="mb-2.5">
@@ -168,6 +192,8 @@ interface SpotDraft {
   orderType: OrderType;
 }
 
+type PublishMode = "publish" | "draft" | "autopost";
+
 /** Spots are optional, but no two may point at the same campus location. */
 function spotsError(spots: SpotDraft[]): string | undefined {
   const picked = spots.map((spot) => spot.locationId).filter(Boolean);
@@ -175,6 +201,15 @@ function spotsError(spots: SpotDraft[]): string | undefined {
     return "Each pickup spot must be a different campus location.";
   }
   return undefined;
+}
+
+/** A named cause needs a 1–100 donation percentage. */
+function causeError(name: string, percent: string): string | undefined {
+  if (!name.trim()) return undefined;
+  const value = Number.parseInt(percent, 10);
+  return Number.isFinite(value) && value >= 1 && value <= 100
+    ? undefined
+    : "Enter a donation percentage from 1 to 100.";
 }
 
 const SELECT_CLASS =
@@ -210,7 +245,7 @@ function SpotsEditor({
           key={spot.id ?? `new-${index}`}
           className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 p-2.5"
         >
-          <div className="min-w-44 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-44">
             <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
               Campus spot
             </Label>
@@ -228,7 +263,7 @@ function SpotsEditor({
               ))}
             </select>
           </div>
-          <div className="min-w-36 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-36">
             <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
               Ordering
             </Label>
@@ -293,6 +328,11 @@ function ListingForm({
   const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
   // Show the "which member recommended you?" question on the order form (#2).
   const [recommenderEnabled, setRecommenderEnabled] = useState(initial?.recommender_enabled ?? false);
+  // Optional cause + percentage of earnings donated (build spec 5 #9).
+  const [causeName, setCauseName] = useState(initial?.cause_name ?? "");
+  const [causePercent, setCausePercent] = useState(
+    initial?.cause_percent != null ? String(initial.cause_percent) : "",
+  );
   const [expiresAt, setExpiresAt] = useState(
     initial
       ? toDatetimeLocal(new Date(initial.expires_at))
@@ -364,6 +404,7 @@ function ListingForm({
             end: toDatetimeLocal(new Date(slot.end_time)),
             max: String(slot.max_reservations),
             reserved: slot.reserved_count,
+            locationId: slot.location_id ?? "",
           })),
         );
       });
@@ -411,6 +452,7 @@ function ListingForm({
       ? undefined
       : "Every pickup slot needs a start, an end after it, and at least as many spots as already reserved.",
     spots: spotsError(spots),
+    cause: causeError(causeName, causePercent),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -454,6 +496,7 @@ function ListingForm({
         start_time: new Date(draft.start).toISOString(),
         end_time: new Date(draft.end).toISOString(),
         max_reservations: Number.parseInt(draft.max, 10),
+        location_id: draft.locationId || null,
       };
       const { error } = draft.id
         ? await supabase.from("pickup_slots").update(payload).eq("id", draft.id)
@@ -463,8 +506,7 @@ function ListingForm({
     return null;
   };
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleSubmit = async (mode: PublishMode) => {
     setShowErrors(true);
     if (hasErrors) return;
 
@@ -480,6 +522,12 @@ function ListingForm({
       pickup_location_id: firstSpot,
       contact_email: contactEmail.trim(),
       recommender_enabled: recommenderEnabled,
+      cause_name: causeName.trim() || null,
+      cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
+      // Unapproved brands can't go live: keep as a draft or auto-post on approval (#7).
+      active: mode === "publish",
+      draft: mode === "draft",
+      auto_post_on_brand: mode === "autopost",
       expires_at: new Date(expiresAt).toISOString(),
     };
 
@@ -505,6 +553,14 @@ function ListingForm({
       listingId = data.id;
     }
 
+    // Held-back brands need an admin request on file so it can be approved.
+    if (mode !== "publish") {
+      await supabase.rpc("request_brand", { p_name: brand.trim() }).then(
+        () => {},
+        () => {},
+      );
+    }
+
     const slotError = listingId ? await syncSlots(listingId) : null;
     const spotError = listingId && !slotError ? await syncSpots(listingId) : null;
     setSubmitting(false);
@@ -512,6 +568,10 @@ function ListingForm({
       toast.error(`Listing saved, but slots failed: ${slotError}`);
     } else if (spotError) {
       toast.error(`Listing saved, but pickup spots failed: ${spotError}`);
+    } else if (mode === "draft") {
+      toast.success("Saved as a draft. Publish it once the brand is approved.");
+    } else if (mode === "autopost") {
+      toast.success("Saved. It posts automatically once an admin approves the brand.");
     } else {
       toast.success(initial ? "Listing updated" : "Your drop is live");
     }
@@ -540,7 +600,12 @@ function ListingForm({
 
   return (
     <form
-      onSubmit={handleSubmit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        // Enter submits only when the brand is approved; otherwise the club
+        // picks draft vs auto-post explicitly below.
+        if (isKnownBrand) void handleSubmit("publish");
+      }}
       noValidate
       className="rounded-2xl border border-border bg-surface-raised p-5"
     >
@@ -693,8 +758,36 @@ function ListingForm({
 
       <div className="mt-5">
         <Label>Pickup days</Label>
-        <SlotsEditor slots={slots} onChange={setSlots} />
+        <SlotsEditor slots={slots} locations={locations} onChange={setSlots} />
         <FieldError message={showErrors ? errors.slots : undefined} />
+      </div>
+
+      <div className="mt-5">
+        <Label>Cause / donation (optional)</Label>
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <Input
+            value={causeName}
+            onChange={(e) => setCauseName(e.target.value)}
+            placeholder="e.g. Ithaca Food Bank"
+            aria-label="Cause name"
+          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={causePercent}
+              onChange={(e) => setCausePercent(e.target.value.replace(/[^\d]/g, ""))}
+              inputMode="numeric"
+              placeholder="50"
+              aria-label="Percent of earnings donated"
+              className="w-20 font-mono"
+              disabled={!causeName.trim()}
+            />
+            <span className="text-sm text-ink-muted">% of earnings</span>
+          </div>
+        </div>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Drops with a cause are pinned to the top of the feed.
+        </p>
+        <FieldError message={showErrors ? errors.cause : undefined} />
       </div>
 
       <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
@@ -718,13 +811,36 @@ function ListingForm({
         </label>
       </div>
 
-      <div className="mt-6 flex items-center justify-end gap-2">
+      {trimmedBrand && !isKnownBrand && (
+        <p className="mt-6 rounded-xl bg-primary/15 p-3 text-xs text-ink">
+          "{trimmedBrand}" needs admin approval before it can go live. Save it as a draft, or have
+          it post automatically once the brand is approved.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" loading={submitting}>
-          {initial ? "Save changes" : "Publish drop"}
-        </Button>
+        {isKnownBrand ? (
+          <Button type="button" loading={submitting} onClick={() => void handleSubmit("publish")}>
+            {initial ? "Save changes" : "Publish drop"}
+          </Button>
+        ) : (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              loading={submitting}
+              onClick={() => void handleSubmit("draft")}
+            >
+              Save as draft
+            </Button>
+            <Button type="button" loading={submitting} onClick={() => void handleSubmit("autopost")}>
+              Auto-post when approved
+            </Button>
+          </>
+        )}
       </div>
     </form>
   );
@@ -742,11 +858,16 @@ function ListingRow({
   onToggleActive: () => void;
 }) {
   const timeLeft = useCountdown(listing.expires_at);
-  const status = timeLeft.expired
-    ? { variant: "urgent" as const, label: "Ended" }
-    : listing.active
-      ? { variant: "success" as const, label: "Live" }
-      : { variant: "neutral" as const, label: "Inactive" };
+  const held = listing.draft || listing.auto_post_on_brand;
+  const status = listing.draft
+    ? { variant: "neutral" as const, label: "Draft" }
+    : listing.auto_post_on_brand
+      ? { variant: "neutral" as const, label: "Posts on approval" }
+      : timeLeft.expired
+        ? { variant: "urgent" as const, label: "Ended" }
+        : listing.active
+          ? { variant: "success" as const, label: "Live" }
+          : { variant: "neutral" as const, label: "Inactive" };
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface-raised p-4">
@@ -765,9 +886,11 @@ function ListingRow({
         <Button variant="secondary" size="sm" onClick={onEdit}>
           Edit
         </Button>
-        <Button variant="ghost" size="sm" loading={busy} onClick={onToggleActive}>
-          {listing.active ? "Deactivate" : "Reactivate"}
-        </Button>
+        {!held && (
+          <Button variant="ghost" size="sm" loading={busy} onClick={onToggleActive}>
+            {listing.active ? "Deactivate" : "Reactivate"}
+          </Button>
+        )}
       </div>
     </div>
   );

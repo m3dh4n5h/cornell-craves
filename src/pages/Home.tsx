@@ -123,13 +123,16 @@ export default function Home() {
     [listings],
   );
 
-  const filtered = useMemo(
-    () =>
-      debouncedBrand
-        ? listings.filter((listing) => listing.brand === debouncedBrand)
-        : listings,
-    [listings, debouncedBrand],
-  );
+  const filtered = useMemo(() => {
+    const base = debouncedBrand
+      ? listings.filter((listing) => listing.brand === debouncedBrand)
+      : listings;
+    // Drops supporting a cause float to the top; otherwise keep newest-first
+    // (the query already orders by created_at desc). Stable sort preserves it.
+    return [...base].sort(
+      (a, b) => Number(Boolean(b.cause_name)) - Number(Boolean(a.cause_name)),
+    );
+  }, [listings, debouncedBrand]);
 
   return (
     <>

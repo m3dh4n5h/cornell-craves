@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { MapPin, Star } from "lucide-react";
+import { Heart, MapPin, Star } from "lucide-react";
 import type { ListingWithClub } from "@/types/database";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
@@ -79,6 +79,15 @@ export function ListingCard({ listing }: ListingCardProps) {
 
         {listing.description && (
           <p className="mt-3 line-clamp-2 text-sm text-ink-muted">{listing.description}</p>
+        )}
+
+        {listing.cause_name && (
+          <p className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-primary-dark">
+            <Heart className="size-3.5 shrink-0" fill="currentColor" strokeWidth={0} aria-hidden="true" />
+            <span className="truncate">
+              {listing.cause_percent}% to {listing.cause_name}
+            </span>
+          </p>
         )}
 
         {listing.pickup_info && (

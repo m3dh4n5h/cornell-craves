@@ -4,7 +4,7 @@ import { ArrowLeft, BadgeCheck, ChevronDown, Download, Inbox, TriangleAlert } fr
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { orderItemsSummary, orderQuantity, ORDER_STATUS_META } from "@/lib/orders";
+import { orderItemsSummary, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, MEMBER_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
 import { formatPrice } from "@/lib/format";
 import { QRScanner } from "@/components/QRScanner";
@@ -405,16 +405,35 @@ export default function ClubOrders() {
   };
 
   const exportCsv = () => {
-    const header =
-      "name,email,netid,qty,items,amount_paid,payment_method,payment_details,status,picked_up_by,ordered_at,picked_up_at";
     const listingTitle = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
-    const rows = filtered.map((order) =>
-      [
+    // One column per distinct item name; each row holds that person's quantity (#17).
+    const itemNames = [
+      ...new Set(filtered.flatMap((order) => (order.items_json ?? []).map((line) => line.name))),
+    ].sort((a, b) => a.localeCompare(b));
+    const baseHeaders = [
+      "name",
+      "email",
+      "netid",
+      "listing",
+      "amount_paid",
+      "payment_method",
+      "payment_details",
+      "status",
+      "picked_up_by",
+      "ordered_at",
+      "picked_up_at",
+    ];
+    const header = [...baseHeaders, ...itemNames].map(csvEscape).join(",");
+    const rows = filtered.map((order) => {
+      const qtyByName = new Map<string, number>();
+      for (const line of order.items_json ?? []) {
+        qtyByName.set(line.name, (qtyByName.get(line.name) ?? 0) + Number(line.qty));
+      }
+      const base = [
         csvEscape(order.orderer_name),
         csvEscape(order.orderer_email),
         csvEscape(order.orderer_netid ?? ""),
-        String(orderQuantity(order.items_json)),
-        csvEscape(`${listingTitle(order.listing_id)}: ${orderItemsSummary(order.items_json)}`),
+        csvEscape(listingTitle(order.listing_id)),
         formatPrice(Number(order.total)),
         order.payment_method,
         csvEscape(
@@ -431,8 +450,10 @@ export default function ClubOrders() {
         ),
         order.created_at,
         order.picked_up_at ?? "",
-      ].join(","),
-    );
+      ];
+      const itemCols = itemNames.map((name) => String(qtyByName.get(name) ?? 0));
+      return [...base, ...itemCols].join(",");
+    });
     const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

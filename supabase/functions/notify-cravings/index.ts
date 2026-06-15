@@ -233,6 +233,10 @@ function qrImageUrl(token: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(token)}`;
 }
 
+// Many email clients block remote images by default, hiding the QR (build spec 5 #13).
+const IMAGE_HINT =
+  "Don't see the QR image? Your email app may be blocking images — tap “Download images” or “Show images” to load it. If it still won't show, use the pickup code below.";
+
 function itemsSummary(items: OrderRecord["items_json"]): string {
   return items.map((item) => `${item.qty}x ${item.name}`).join(", ");
 }
@@ -375,6 +379,7 @@ async function verifyPayment(orderId: string, authHeader: string | null): Promis
         `${escapeHtml(club?.name ?? "The club")} confirmed your payment for ${escapeHtml(listing.title)}. Show this QR at pickup (${escapeHtml(where)}):`,
       ) +
         `<p style="margin:0 0 16px;"><img src="${qrImageUrl(tokens.orderer)}" alt="Your QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
+        paragraph(IMAGE_HINT) +
         paragraph(`Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(codes.orderer)}</span>`) +
         (order.proxy_name
           ? paragraph(
@@ -396,6 +401,7 @@ async function verifyPayment(orderId: string, authHeader: string | null): Promis
         `${escapeHtml(order.orderer_name)} asked you to pick up ${escapeHtml(itemsSummary(order.items_json))} from ${escapeHtml(listing.title)} (${escapeHtml(club?.name ?? "a Cornell club")}). Show this QR at ${escapeHtml(where)}:`,
       ) +
         `<p style="margin:0 0 16px;"><img src="${qrImageUrl(tokens.proxy)}" alt="Proxy QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
+        paragraph(IMAGE_HINT) +
         paragraph(`Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(codes.proxy)}</span>`),
       "See the listing",
       `${SITE_URL}/listing/${listing.id}`,
@@ -792,6 +798,7 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
         `${escapeHtml(club?.name ?? "The club")} confirmed everyone's share of ${escapeHtml(group.item_name)} (${escapeHtml(listing.title)}). Show this QR at ${escapeHtml(where)}:`,
       ) +
         `<p style="margin:0 0 16px;"><img src="${qrImageUrl(m.qr_encrypted)}" alt="Your group QR pickup pass" width="240" height="240" style="border-radius:12px;border:1px solid #e3ddd0;" /></p>` +
+        paragraph(IMAGE_HINT) +
         paragraph(
           `Pickup code, if the scanner is fussy: <span style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;">${escapeHtml(m.pickup_code ?? "")}</span>`,
         ),
@@ -1119,6 +1126,20 @@ async function handleRequest(req: Request): Promise<Response> {
     if (payload.table === "listings" && payload.type === "INSERT" && payload.record) {
       const result = await notifyCravings(payload.record as unknown as ListingRecord);
       return Response.json({ ok: true, ...result });
+    }
+
+    // Brand corrected after posting: alert subscribers of the NEW brand. The
+    // notifications_log (craving_id, listing_id) dedupe means anyone already
+    // notified for this listing — including under the old brand — is skipped,
+    // so a single listing never double-notifies a person (build spec 5 #15).
+    if (payload.table === "listings" && payload.type === "UPDATE" && payload.record) {
+      const next = payload.record as unknown as ListingRecord;
+      const prev = payload.old_record as unknown as ListingRecord | null;
+      if (prev && next.brand && next.brand !== prev.brand) {
+        const result = await notifyCravings(next);
+        return Response.json({ ok: true, ...result });
+      }
+      return Response.json({ ok: true, skipped: "no brand change" });
     }
 
     if (

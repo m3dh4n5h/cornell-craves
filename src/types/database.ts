@@ -100,6 +100,10 @@ export type Listing = {
   pickup_location_id: string | null;
   contact_email: string | null;
   recommender_enabled: boolean;
+  cause_name: string | null;
+  cause_percent: number | null;
+  draft: boolean;
+  auto_post_on_brand: boolean;
   avg_rating: number;
   review_count: number;
   expires_at: string;
@@ -117,7 +121,14 @@ export type ListingWithClub = Listing & {
   /** All pickup spots for this drop (Batch 2 #2/#3), embedded from the join table. */
   listing_pickup_spots?: ListingPickupSpotWithLocation[];
   /** Scheduled pickup days (Batch 2 #4/#10), embedded from pickup_slots. */
-  pickup_slots?: Pick<PickupSlot, "start_time" | "end_time">[];
+  pickup_slots?: Array<
+    Pick<PickupSlot, "start_time" | "end_time" | "location_id"> & {
+      campus_locations?: Pick<
+        CampusLocation,
+        "id" | "name" | "latitude" | "longitude"
+      > | null;
+    }
+  >;
 };
 
 export type Craving = {
@@ -141,6 +152,8 @@ export type PickupSlot = {
   end_time: string;
   max_reservations: number;
   reserved_count: number;
+  /** Per-slot pickup location (build spec 5 #5), null = use the listing's spots. */
+  location_id: string | null;
   created_at: string;
 };
 
@@ -182,6 +195,8 @@ export type QAEntry = {
   created_at: string;
 };
 
+export type TemplateMode = "one_time" | "auto";
+
 export type RecurringTemplate = {
   id: string;
   club_id: string;
@@ -192,6 +207,8 @@ export type RecurringTemplate = {
   frequency: "weekly" | "biweekly" | "monthly";
   next_run_date: string | null;
   is_active: boolean;
+  mode: TemplateMode;
+  auto_active: boolean;
   created_at: string;
 };
 
@@ -260,6 +277,8 @@ export type OrderQRCode = {
   order_id: string;
   user_type: "orderer" | "proxy";
   qr_encrypted: string;
+  /** Short single-use pickup code shown to the buyer and emailed (migration 017). */
+  pickup_code: string | null;
   is_active: boolean;
   scanned_at: string | null;
   scanned_by_user_type: string | null;
@@ -414,6 +433,10 @@ type ListingInsert = {
   pickup_location_id?: string | null;
   contact_email?: string | null;
   recommender_enabled?: boolean;
+  cause_name?: string | null;
+  cause_percent?: number | null;
+  draft?: boolean;
+  auto_post_on_brand?: boolean;
   avg_rating?: number;
   review_count?: number;
   expires_at: string;
@@ -443,6 +466,7 @@ type PickupSlotInsert = {
   end_time: string;
   max_reservations: number;
   reserved_count?: number;
+  location_id?: string | null;
   created_at?: string;
 };
 
@@ -502,6 +526,8 @@ type RecurringTemplateInsert = {
   frequency: "weekly" | "biweekly" | "monthly";
   next_run_date?: string | null;
   is_active?: boolean;
+  mode?: TemplateMode;
+  auto_active?: boolean;
   created_at?: string;
 };
 
@@ -558,6 +584,7 @@ type OrderQRCodeInsert = {
   order_id: string;
   user_type: "orderer" | "proxy";
   qr_encrypted?: string;
+  pickup_code?: string | null;
   is_active?: boolean;
   scanned_at?: string | null;
   scanned_by_user_type?: string | null;
@@ -845,6 +872,10 @@ export type Database = {
       add_campus_location: {
         Args: { p_name: string; p_lat: number; p_lng: number; p_description?: string | null };
         Returns: CampusLocation;
+      };
+      is_brand_approved: {
+        Args: { p_brand: string };
+        Returns: boolean;
       };
       request_brand: {
         Args: { p_name: string };

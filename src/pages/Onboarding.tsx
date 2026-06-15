@@ -6,11 +6,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
 import { isValidNetid } from "@/lib/orders";
+import { isCornellEmail } from "@/lib/identity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -23,40 +22,52 @@ function FieldError({ message }: { message?: string }) {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const { club, loading: clubLoading } = useClub();
   const { profile, loading: profileLoading } = useProfile();
 
   const [netid, setNetid] = useState("");
-  const [cornellEmail, setCornellEmail] = useState("");
   const [venmo, setVenmo] = useState("");
   const [phone, setPhone] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // First sign-up confirms the account type (build spec 5 #4).
+  const [confirmedStudent, setConfirmedStudent] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  // The student's email is their Cornell Google account, never editable (#2).
+  const accountEmail = (user?.email ?? "").toLowerCase();
+  const firstTime = !profile?.cornell_netid;
 
   useEffect(() => {
     if (!profile && !user) return;
     setNetid((previous) => previous || (profile?.cornell_netid ?? ""));
     setVenmo((previous) => previous || (profile?.venmo_id ?? ""));
     setPhone((previous) => previous || (profile?.phone ?? ""));
-    setCornellEmail((previous) => {
-      if (previous) return previous;
-      if (profile?.cornell_email) return profile.cornell_email;
-      const authEmail = user?.email ?? "";
-      return authEmail.toLowerCase().endsWith("@cornell.edu") ? authEmail : "";
-    });
   }, [profile, user]);
 
   if (!authLoading && !user) return <Navigate to="/login" replace />;
   if (!clubLoading && club) return <Navigate to="/dashboard" replace />;
 
+  // "No, I'm a club": delete the just-created account so nothing stale is left,
+  // sign out, and send them back to choose again (build spec 5 #4).
+  const switchToClub = async () => {
+    setSwitching(true);
+    const { error } = await supabase.functions.invoke("notify-cravings", {
+      body: { action: "delete_account" },
+    });
+    if (error) {
+      setSwitching(false);
+      toast.error(error.message);
+      return;
+    }
+    await signOut();
+    toast.success("Account removed. Sign in again and choose Club.");
+    navigate("/login");
+  };
+
   const errors = {
     netid: isValidNetid(netid) ? undefined : "Enter your NetID, like abc123.",
-    email:
-      EMAIL_PATTERN.test(cornellEmail.trim()) &&
-      cornellEmail.trim().toLowerCase().endsWith("@cornell.edu")
-        ? undefined
-        : "Enter your @cornell.edu email.",
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -71,7 +82,7 @@ export default function Onboarding() {
       first_name: profile?.first_name ?? "",
       last_name: profile?.last_name ?? "",
       cornell_netid: netid.trim().toLowerCase(),
-      cornell_email: cornellEmail.trim().toLowerCase(),
+      cornell_email: accountEmail,
       venmo_id: venmo.trim().replace(/^@/, "") || null,
       phone: phone.trim() || null,
     });
@@ -98,6 +109,53 @@ export default function Onboarding() {
 
   const firstName = profile?.first_name || "there";
 
+  // First sign-up: confirm this is a student account before anything is saved.
+  if (firstTime && !confirmedStudent) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight">Set up a student account?</h1>
+          <p className="mt-3 text-sm text-ink-muted">
+            You're signed in as <span className="font-semibold">{accountEmail}</span>. Student
+            accounts order food, split costs, and reserve pickups.
+          </p>
+          <Button className="mt-6 w-full" size="lg" onClick={() => setConfirmedStudent(true)}>
+            Yes, I'm a student
+          </Button>
+          <Button
+            variant="ghost"
+            className="mt-2 w-full"
+            loading={switching}
+            onClick={() => void switchToClub()}
+          >
+            No, I'm a club
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Students must use a Cornell Google account (build spec 5 #1).
+  if (!isCornellEmail(accountEmail)) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight">Cornell account needed</h1>
+          <p className="mt-3 text-sm text-ink-muted">
+            Students must sign in with a Cornell <span className="font-semibold">@cornell.edu</span>{" "}
+            Google account. You're signed in as {accountEmail}.
+          </p>
+          <Button variant="secondary" className="mt-6 w-full" onClick={() => void signOut()}>
+            Sign out and use my Cornell account
+          </Button>
+          <Button variant="ghost" className="mt-2 w-full" loading={switching} onClick={() => void switchToClub()}>
+            Actually, I'm a club
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10">
       <h1 className="text-2xl font-extrabold tracking-tight">Almost in, {firstName}</h1>
@@ -120,17 +178,11 @@ export default function Onboarding() {
           <FieldError message={showErrors ? errors.netid : undefined} />
         </div>
         <div>
-          <Label htmlFor="onboarding-email">Cornell email</Label>
-          <Input
-            id="onboarding-email"
-            type="email"
-            value={cornellEmail}
-            invalid={showErrors && Boolean(errors.email)}
-            onChange={(e) => setCornellEmail(e.target.value)}
-            placeholder="netid@cornell.edu"
-            autoComplete="email"
-          />
-          <FieldError message={showErrors ? errors.email : undefined} />
+          <Label>Cornell email</Label>
+          <p className="mt-1 rounded-xl bg-surface px-3 py-2.5 font-medium text-ink">{accountEmail}</p>
+          <p className="mt-1.5 text-xs text-ink-muted">
+            This is your Google account email and can't be changed.
+          </p>
         </div>
         <div>
           <Label htmlFor="onboarding-venmo">Venmo username (optional)</Label>

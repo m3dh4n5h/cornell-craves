@@ -8,6 +8,7 @@ import { useListing } from "@/hooks/useListings";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { getSavedEmail, setSavedEmail } from "@/lib/local";
+import { isCornellEmail } from "@/lib/identity";
 import { formatPrice } from "@/lib/format";
 import { isValidNetid } from "@/lib/orders";
 import { AllergenIcon } from "@/components/AllergenIcon";
@@ -44,7 +45,7 @@ export default function OrderForm() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
   const { listing, loading, error, refetch } = useListing(id);
-  const { user, isGoogleUser } = useAuth();
+  const { user, isGoogleUser, signOut } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
 
   const [name, setName] = useState("");
@@ -255,6 +256,24 @@ export default function OrderForm() {
     );
   }
 
+  // Ordering is a student action: the Google account must be @cornell.edu.
+  if (!isCornellEmail(user.email)) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-12">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <h1 className="text-xl font-extrabold tracking-tight">Cornell students only</h1>
+          <p className="mt-2 text-sm text-ink-muted">
+            Ordering needs a Cornell <span className="font-semibold">@cornell.edu</span> Google
+            account. You're signed in as {user.email}. Sign out and use your Cornell account to order.
+          </p>
+          <Button variant="secondary" className="mt-5 w-full" onClick={() => void signOut()}>
+            Sign out
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const splitItem = items.find((item) => item.name === splitItemName) ?? null;
   const groupsEnabled = listing.clubs?.groups_enabled ?? true;
   const splitItemQty = Math.max(1, splitItem?.quantity ?? 1);
@@ -374,7 +393,12 @@ export default function OrderForm() {
             {payMethod === "both" ? "Venmo or Zelle" : payMethod === "venmo" ? "Venmo" : "Zelle"}.
             Once they verify your payment, your QR pickup pass lands in {email.trim().toLowerCase()}.
           </p>
-          <p className="mt-3 rounded-xl bg-surface px-3 py-2.5 text-xs text-ink-muted">
+          <p className="mt-3 rounded-xl bg-primary/15 px-3 py-2.5 text-xs text-ink">
+            Your pass also shows up right here on the website — open your{" "}
+            <span className="font-semibold">Orders</span> page once the club approves your payment,
+            even if the email is slow.
+          </p>
+          <p className="mt-2 rounded-xl bg-surface px-3 py-2.5 text-xs text-ink-muted">
             📩 Passes can land in <span className="font-semibold text-ink">spam</span> — check there
             if you don't see it, and once it arrives mark it "Not spam" / add the sender to your
             contacts so future passes go straight to your inbox.
@@ -471,22 +495,22 @@ export default function OrderForm() {
             {items.map((item) => {
               const qty = quantities[item.name] ?? 0;
               return (
-                <li key={item.name} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold">
+                <li key={item.name} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3">
+                  <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-semibold">
                       {(item.dietary_tags ?? []).map((tag) => (
                         <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
                       ))}
-                      <span className="truncate">{item.name}</span>
+                      <span className="break-words">{item.name}</span>
                       {(item.quantity ?? 1) > 1 && (
-                        <span className="shrink-0 text-xs font-normal text-ink-muted">
+                        <span className="text-xs font-normal text-ink-muted">
                           {"·"} {item.quantity} in a box
                         </span>
                       )}
                     </p>
                     <p className="font-mono text-xs text-ink-muted">{formatPrice(item.price)}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 max-sm:ml-auto">
                     <Button
                       type="button"
                       variant="secondary"
@@ -569,13 +593,13 @@ export default function OrderForm() {
                             : "border-border bg-surface-raised/60 hover-fine:border-primary",
                         )}
                       >
-                        <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-semibold">
                           {(item.dietary_tags ?? []).map((tag) => (
                             <AllergenIcon key={tag} tag={tag} className="text-ink-muted" />
                           ))}
-                          <span className="truncate">{item.name}</span>
+                          <span className="break-words">{item.name}</span>
                           {qty > 1 && (
-                            <span className="shrink-0 text-xs font-normal text-ink-muted">
+                            <span className="text-xs font-normal text-ink-muted">
                               {"·"} {qty} in a box
                             </span>
                           )}

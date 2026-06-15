@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useBrandOptions } from "@/hooks/useBrands";
+import { isCornellEmail } from "@/lib/identity";
 import { cn } from "@/lib/utils";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -43,6 +44,18 @@ export default function Cravings() {
   // Craving subscriptions require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
     return <Navigate to="/login?intent=student&next=/cravings" replace />;
+  }
+  // Craving alerts are a student feature: require a Cornell account.
+  if (!authLoading && user && !isCornellEmail(user.email)) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16 text-center">
+        <h1 className="text-2xl font-extrabold tracking-tight">Cornell students only</h1>
+        <p className="mt-3 text-sm text-ink-muted">
+          Craving alerts need a Cornell <span className="font-semibold">@cornell.edu</span> Google
+          account. You're signed in as {user.email}.
+        </p>
+      </div>
+    );
   }
 
   const emailError = EMAIL_PATTERN.test(email.trim()) ? undefined : "Enter a valid email address.";

@@ -150,5 +150,6 @@ NEXT_STEPS.md
 .env.local
 .env.*.local
 
-# Claude Code personal settings (machine-specific permissions/paths)
-.claude/settings.local.json
+# Local-only agent settings and scratch prompts (never commit)
+.claude/
+ignore/

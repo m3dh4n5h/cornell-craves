@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { Club, DietaryTagId } from "@/types/database";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AccountSettings() {
   const navigate = useNavigate();
@@ -115,10 +114,6 @@ export default function AccountSettings() {
   const errors = {
     firstName: firstName.trim() ? undefined : "Enter your first name.",
     netid: !netid.trim() || isValidNetid(netid) ? undefined : "That does not look like a NetID.",
-    email:
-      !cornellEmail.trim() || EMAIL_PATTERN.test(cornellEmail.trim())
-        ? undefined
-        : "Enter a valid email address.",
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -141,7 +136,8 @@ export default function AccountSettings() {
     if (hasErrors) return;
     setSubmitting(true);
 
-    const email = (cornellEmail.trim() || user.email || "").toLowerCase();
+    // Email is the Google account email and is never edited here (#2).
+    const email = (user.email || cornellEmail.trim() || "").toLowerCase();
     const { error } = await supabase.from("users_extended").upsert({
       id: user.id,
       first_name: firstName.trim(),
@@ -262,24 +258,14 @@ export default function AccountSettings() {
         </div>
 
         <div>
-          <Label htmlFor="settings-email">Cornell email</Label>
-          <Input
-            id="settings-email"
-            type="email"
-            value={cornellEmail}
-            invalid={showErrors && Boolean(errors.email)}
-            onChange={(e) => setCornellEmail(e.target.value)}
-            placeholder="netid@cornell.edu"
-            autoComplete="email"
-          />
-          <p className="mt-1.5 text-xs text-ink-muted">
-            Used for craving alerts, order updates, and QR pickup passes.
+          <Label>Cornell email</Label>
+          <p className="mt-1 rounded-xl bg-surface px-3 py-2.5 font-medium text-ink">
+            {user?.email ?? cornellEmail}
           </p>
-          {showErrors && errors.email && (
-            <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-              {errors.email}
-            </p>
-          )}
+          <p className="mt-1.5 text-xs text-ink-muted">
+            Your Google account email — used for craving alerts, order updates, and QR passes. It
+            can't be changed.
+          </p>
         </div>
 
         <div>
@@ -414,6 +400,8 @@ function ClubAccount({ club }: { club: Club }) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const { refetch: refetchClub } = useClub();
+  const [clubName, setClubName] = useState(club.name);
+  const [savingName, setSavingName] = useState(false);
   const [venmo, setVenmo] = useState(club.venmo ?? "");
   const [zelle, setZelle] = useState(club.zelle_phone ?? "");
   const [submitting, setSubmitting] = useState(false);
@@ -449,6 +437,26 @@ function ClubAccount({ club }: { club: Club }) {
     }
     setNewMember("");
     void persistMembers([...memberOptions, name]);
+  };
+
+  // Club name is the club's identity; an edit propagates to every listing via
+  // the clubs join (build spec 5 #3).
+  const saveClubName = async () => {
+    const name = clubName.trim();
+    if (name.length < 2) {
+      toast.error("Enter your club's name.");
+      return;
+    }
+    if (name === club.name) return;
+    setSavingName(true);
+    const { error } = await supabase.from("clubs").update({ name }).eq("id", club.id);
+    setSavingName(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success("Club name updated everywhere.");
   };
 
   // Upload a logo to the club-logos bucket and store its public URL (#14).
@@ -605,9 +613,28 @@ function ClubAccount({ club }: { club: Club }) {
       </p>
 
       <div className="mt-6 rounded-2xl border border-border bg-surface-raised p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Club</p>
-        <p className="mt-1 text-lg font-bold">{club.name}</p>
-        <p className="text-sm text-ink-muted">{club.email}</p>
+        <Label htmlFor="club-name">Club name</Label>
+        <div className="mt-1 flex gap-2">
+          <Input
+            id="club-name"
+            value={clubName}
+            onChange={(e) => setClubName(e.target.value)}
+            placeholder="Cornell Robotics Club"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            loading={savingName}
+            disabled={clubName.trim() === club.name}
+            onClick={() => void saveClubName()}
+          >
+            Save
+          </Button>
+        </div>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Shown on all your listings. Email ({club.email}) can't be changed.
+        </p>
       </div>
 
       <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">

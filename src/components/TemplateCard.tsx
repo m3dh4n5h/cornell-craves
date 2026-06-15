@@ -26,9 +26,18 @@ interface TemplateCardProps {
   onPost: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  onToggleAuto: () => void;
 }
 
-export function TemplateCard({ template, busy, onPost, onEdit, onToggleActive }: TemplateCardProps) {
+export function TemplateCard({
+  template,
+  busy,
+  onPost,
+  onEdit,
+  onToggleActive,
+  onToggleAuto,
+}: TemplateCardProps) {
+  const isAuto = template.mode === "auto";
   const range = priceRange(template.items ?? []);
   const itemCount = template.items?.length ?? 0;
   const nextRun = formatNextRun(template.next_run_date);
@@ -61,8 +70,13 @@ export function TemplateCard({ template, busy, onPost, onEdit, onToggleActive }:
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Badge variant="default">{FREQUENCY_LABELS[template.frequency]}</Badge>
-        {nextRun && <Badge variant="neutral">Next run {nextRun}</Badge>}
+        <Badge variant="default">{isAuto ? FREQUENCY_LABELS[template.frequency] : "One-time"}</Badge>
+        {isAuto && (
+          <Badge variant={template.auto_active ? "success" : "neutral"}>
+            {template.auto_active ? "Auto-posting on" : "Auto-posting off"}
+          </Badge>
+        )}
+        {isAuto && template.auto_active && nextRun && <Badge variant="neutral">Next {nextRun}</Badge>}
         {!template.is_active && <Badge variant="urgent">Paused</Badge>}
       </div>
 
@@ -75,6 +89,11 @@ export function TemplateCard({ template, busy, onPost, onEdit, onToggleActive }:
           <Pencil className="size-3.5" aria-hidden="true" />
           Edit
         </Button>
+        {isAuto && (
+          <Button variant="ghost" size="sm" onClick={onToggleAuto}>
+            {template.auto_active ? "Turn off auto" : "Activate auto"}
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={onToggleActive}>
           {template.is_active ? "Pause" : "Resume"}
         </Button>

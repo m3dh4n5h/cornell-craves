@@ -15,6 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { ListingWithClub, PickupSlot } from "@/types/database";
 
+/** A slot with its per-day pickup location embedded (build spec 5 #5). */
+type SlotRow = PickupSlot & { campus_locations: { name: string } | null };
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function dayKey(iso: string): string {
@@ -44,7 +47,7 @@ interface PickupCalendarProps {
 export function PickupCalendar({ listing }: PickupCalendarProps) {
   const reduceMotion = useReducedMotion();
   const { user, isGoogleUser } = useAuth();
-  const [slots, setSlots] = useState<PickupSlot[]>([]);
+  const [slots, setSlots] = useState<SlotRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
@@ -67,15 +70,16 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
   const [dietaryNotes, setDietaryNotes] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [reserved, setReserved] = useState<PickupSlot | null>(null);
+  const [reserved, setReserved] = useState<SlotRow | null>(null);
 
   const refetch = useCallback(async () => {
     const { data, error } = await supabase
       .from("pickup_slots")
-      .select("*")
+      .select("*, campus_locations(name)")
       .eq("listing_id", listing.id)
       .gt("end_time", new Date().toISOString())
-      .order("start_time", { ascending: true });
+      .order("start_time", { ascending: true })
+      .returns<SlotRow[]>();
     if (error) {
       toast.error("Could not load pickup slots");
     } else {
@@ -186,8 +190,9 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
         <h3 className="mt-4 text-xl font-extrabold">Pickup reserved</h3>
         <p className="mt-2 text-sm text-ink-muted">
           {formatDay(reserved.start_time).weekday} {formatDay(reserved.start_time).date},{" "}
-          {formatTimeRange(reserved)}. A confirmation email is on its way to{" "}
-          {email.trim().toLowerCase()}.
+          {formatTimeRange(reserved)}
+          {reserved.campus_locations?.name ? ` at ${reserved.campus_locations.name}` : ""}. A
+          confirmation email is on its way to {email.trim().toLowerCase()}.
         </p>
         <p className="mt-2 text-sm text-ink-muted">
           Manage it anytime under{" "}
@@ -255,8 +260,15 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
                   : "border-border bg-surface-raised hover-fine:border-primary",
               )}
             >
-              <span className="text-sm font-bold">{formatTimeRange(slot)}</span>
-              <span className={cn("text-xs font-semibold", full ? "text-accent" : "text-ink-muted")}>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold">{formatTimeRange(slot)}</span>
+                {slot.campus_locations?.name && (
+                  <span className="block truncate text-xs text-ink-muted">
+                    {slot.campus_locations.name}
+                  </span>
+                )}
+              </span>
+              <span className={cn("shrink-0 text-xs font-semibold", full ? "text-accent" : "text-ink-muted")}>
                 {full ? "Full" : started ? "Started" : `${spotsLeft} of ${slot.max_reservations} left`}
               </span>
             </button>
@@ -275,6 +287,9 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
         >
           <h3 className="text-base font-bold">
             Reserve {formatTimeRange(selectedSlot)}
+            {selectedSlot.campus_locations?.name && (
+              <span className="font-normal text-ink-muted"> at {selectedSlot.campus_locations.name}</span>
+            )}
           </h3>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>

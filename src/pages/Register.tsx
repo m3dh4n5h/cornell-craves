@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { CheckCircle2, Store } from "lucide-react";
@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
+import { useProfile } from "@/hooks/useProfile";
+import { googleFullName } from "@/lib/identity";
 import { GoogleButton } from "@/components/GoogleButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,8 +29,9 @@ function FieldError({ message }: { message?: string }) {
 export default function Register() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const { club, loading: clubLoading, refetch } = useClub();
+  const { profile, loading: profileLoading } = useProfile();
 
   const [name, setName] = useState("");
   const [venmo, setVenmo] = useState("");
@@ -36,6 +39,33 @@ export default function Register() {
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // First sign-up confirms the account type (build spec 5 #4).
+  const [confirmedClub, setConfirmedClub] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  // Prefill the club name from the Google profile (build spec 5 #3).
+  useEffect(() => {
+    const fromGoogle = googleFullName(user);
+    if (fromGoogle) setName((previous) => previous || fromGoogle);
+  }, [user]);
+
+  // An established student (completed onboarding) cannot also become a club.
+  const isEstablishedStudent = Boolean(profile?.cornell_netid);
+
+  const switchToStudent = async () => {
+    setSwitching(true);
+    const { error } = await supabase.functions.invoke("notify-cravings", {
+      body: { action: "delete_account" },
+    });
+    if (error) {
+      setSwitching(false);
+      toast.error(error.message);
+      return;
+    }
+    await signOut();
+    toast.success("Account removed. Sign in again and choose Student.");
+    navigate("/login?intent=student");
+  };
 
   if (!authLoading && user && !clubLoading && club && !submitted) {
     return <Navigate to="/dashboard" replace />;
@@ -62,7 +92,7 @@ export default function Register() {
     );
   }
 
-  if (authLoading || clubLoading) {
+  if (authLoading || clubLoading || profileLoading) {
     return (
       <div className="mx-auto w-full max-w-md px-4 py-10" aria-busy="true" aria-label="Loading">
         <div className="h-9 w-56 animate-pulse rounded-xl bg-border/70" />
@@ -127,6 +157,53 @@ export default function Register() {
             Go to my dashboard
           </Button>
         </motion.div>
+      </div>
+    );
+  }
+
+  // An existing student account cannot register as a club (build spec 5 #4).
+  if (isEstablishedStudent) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight">You have a student account</h1>
+          <p className="mt-3 text-sm text-ink-muted">
+            {user?.email} is registered as a student. One account is one type — delete your student
+            account in settings first, then register as a club.
+          </p>
+          <Button className="mt-6 w-full" onClick={() => navigate("/account/settings")}>
+            Open account settings
+          </Button>
+          <Button variant="ghost" className="mt-2 w-full" onClick={() => navigate("/")}>
+            Back to the feed
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // First sign-up: confirm this is a club account before anything is saved.
+  if (!confirmedClub) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight">Set up a club account?</h1>
+          <p className="mt-3 text-sm text-ink-muted">
+            You're signed in as <span className="font-semibold">{user?.email}</span>. Club accounts
+            run fundraisers, verify payments, and scan pickups.
+          </p>
+          <Button className="mt-6 w-full" size="lg" onClick={() => setConfirmedClub(true)}>
+            Yes, I'm a club
+          </Button>
+          <Button
+            variant="ghost"
+            className="mt-2 w-full"
+            loading={switching}
+            onClick={() => void switchToStudent()}
+          >
+            No, I'm a student
+          </Button>
+        </div>
       </div>
     );
   }

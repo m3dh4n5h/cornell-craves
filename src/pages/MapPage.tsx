@@ -61,7 +61,7 @@ export default function MapPage() {
     const { data, error } = await supabase
       .from("listings")
       .select(
-        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url, member_options), campus_locations(name, latitude, longitude, pickup_type), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description)), pickup_slots(start_time, end_time)",
+        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url, member_options), campus_locations(name, latitude, longitude, pickup_type), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description)), pickup_slots(start_time, end_time, location_id, campus_locations(id, name, latitude, longitude))",
       )
       .eq("active", true)
       .gt("expires_at", nowIso)
@@ -104,36 +104,71 @@ export default function MapPage() {
   // Expand each listing across all its pickup spots, then group by location. A
   // listing only pins where it has a pickup happening today or upcoming (#10).
   const groups = useMemo(() => {
+    const now = Date.now();
     const byLocation = new Map<string, LocationGroup>();
     for (const listing of filtered) {
       if (!hasUpcomingPickup(listing)) continue;
       const spots = listing.listing_pickup_spots ?? [];
-      const places =
-        spots.length > 0
-          ? spots.flatMap((spot) =>
-              spot.campus_locations
-                ? [
-                    {
-                      name: spot.campus_locations.name,
-                      lat: Number(spot.campus_locations.latitude),
-                      lng: Number(spot.campus_locations.longitude),
-                      orderType: spot.order_type as OrderType | null,
-                      pickupType: ORDER_TYPE_TO_PICKUP_TYPE[spot.order_type],
-                    },
-                  ]
-                : [],
-            )
-          : listing.campus_locations
+      const orderTypeAt = (locationId: string): OrderType | null =>
+        spots.find((spot) => spot.location_id === locationId)?.order_type ?? null;
+
+      // #6: when a listing assigns locations to its pickup days, a location pins
+      // ONLY on a day it actually happens — i.e. it has an upcoming slot there.
+      const upcomingSlotLocs = (listing.pickup_slots ?? []).filter(
+        (slot) => slot.location_id && slot.campus_locations && new Date(slot.end_time).getTime() >= now,
+      );
+
+      let places: {
+        name: string;
+        lat: number;
+        lng: number;
+        orderType: OrderType | null;
+        pickupType: PickupType;
+      }[];
+
+      if (upcomingSlotLocs.length > 0) {
+        const byLoc = new Map<string, (typeof places)[number]>();
+        for (const slot of upcomingSlotLocs) {
+          const loc = slot.campus_locations!;
+          if (byLoc.has(loc.id)) continue;
+          const orderType = orderTypeAt(loc.id);
+          byLoc.set(loc.id, {
+            name: loc.name,
+            lat: Number(loc.latitude),
+            lng: Number(loc.longitude),
+            orderType,
+            pickupType: orderType ? ORDER_TYPE_TO_PICKUP_TYPE[orderType] : "both",
+          });
+        }
+        places = [...byLoc.values()];
+      } else if (spots.length > 0) {
+        places = spots.flatMap((spot) =>
+          spot.campus_locations
             ? [
                 {
-                  name: listing.campus_locations.name,
-                  lat: Number(listing.campus_locations.latitude),
-                  lng: Number(listing.campus_locations.longitude),
-                  orderType: null as OrderType | null,
-                  pickupType: (listing.campus_locations.pickup_type ?? "both") as PickupType,
+                  name: spot.campus_locations.name,
+                  lat: Number(spot.campus_locations.latitude),
+                  lng: Number(spot.campus_locations.longitude),
+                  orderType: spot.order_type as OrderType | null,
+                  pickupType: ORDER_TYPE_TO_PICKUP_TYPE[spot.order_type],
                 },
               ]
-            : [];
+            : [],
+        );
+      } else if (listing.campus_locations) {
+        places = [
+          {
+            name: listing.campus_locations.name,
+            lat: Number(listing.campus_locations.latitude),
+            lng: Number(listing.campus_locations.longitude),
+            orderType: null,
+            pickupType: (listing.campus_locations.pickup_type ?? "both") as PickupType,
+          },
+        ];
+      } else {
+        places = [];
+      }
+
       for (const place of places) {
         const key = `${place.lat},${place.lng}`;
         const existing = byLocation.get(key);

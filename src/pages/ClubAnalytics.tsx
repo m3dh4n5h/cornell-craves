@@ -178,22 +178,9 @@ export default function ClubAnalytics() {
     const orderCount = inRange.length;
     const avgOrderValue = orderCount > 0 ? soloRevenue / orderCount : 0;
 
-    // Box size per item name, to express sell-through in boxes where set.
-    const boxSize = new Map<string, number>();
-    for (const listing of listings) {
-      for (const item of listing.items ?? []) {
-        const qty = Math.max(1, item.quantity ?? 1);
-        boxSize.set(item.name, Math.max(boxSize.get(item.name) ?? 1, qty));
-      }
-    }
-
+    // Each unit ordered is one box, so units sold == boxes sold (no fraction).
     const items = [...itemAgg.entries()]
-      .map(([name, agg]) => ({
-        name,
-        units: agg.units,
-        revenue: agg.revenue,
-        box: boxSize.get(name) ?? 1,
-      }))
+      .map(([name, agg]) => ({ name, units: agg.units, revenue: agg.revenue }))
       .sort((a, b) => b.units - a.units);
 
     const itemRevenueChart = items
@@ -417,9 +404,8 @@ export default function ClubAnalytics() {
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
                       <th className="pb-2 font-semibold">Item</th>
-                      <th className="pb-2 text-right font-semibold">Units</th>
+                      <th className="pb-2 text-right font-semibold">Units sold</th>
                       <th className="pb-2 text-right font-semibold">Revenue</th>
-                      <th className="pb-2 text-right font-semibold">Boxes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -428,16 +414,10 @@ export default function ClubAnalytics() {
                         <td className="py-2 pr-2 font-semibold">{item.name}</td>
                         <td className="py-2 text-right font-mono">{item.units}</td>
                         <td className="py-2 text-right font-mono font-bold">{formatPrice(item.revenue)}</td>
-                        <td className="py-2 text-right font-mono text-ink-muted">
-                          {item.box > 1 ? (item.units / item.box).toFixed(1) : "—"}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="mt-2 text-xs text-ink-muted">
-                  Boxes = units sold ÷ box size, shown where an item has a box quantity.
-                </p>
               </div>
             )}
           </section>

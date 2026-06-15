@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   Clock,
   Copy,
+  Heart,
   Mail,
   MapPinned,
   SearchX,
@@ -372,6 +373,15 @@ export default function ListingDetail() {
           )}
 
           {listing.description && <p className="mt-4 text-ink-muted">{listing.description}</p>}
+
+          {listing.cause_name && (
+            <p className="mt-4 flex items-start gap-2 rounded-xl bg-primary/15 p-3 text-sm font-semibold text-ink">
+              <Heart className="mt-0.5 size-4 shrink-0 text-primary-dark" fill="currentColor" strokeWidth={0} aria-hidden="true" />
+              <span>
+                {listing.cause_percent}% of earnings go to {listing.cause_name}.
+              </span>
+            </p>
+          )}
 
           {listing.pickup_info && (
             <p className="mt-3 flex items-start gap-2 text-sm text-ink-muted">

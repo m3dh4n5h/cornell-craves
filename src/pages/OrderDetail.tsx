@@ -181,13 +181,17 @@ export default function OrderDetail() {
               </div>
             )}
           </div>
-          {ordererQr?.qr_encrypted && (
+          {ordererQr?.pickup_code && (
             <details className="mt-4">
               <summary className="cursor-pointer text-xs font-semibold text-ink-muted">
                 Scanner not working? Show the pass code
               </summary>
-              <p className="mt-2 break-all rounded-xl bg-surface p-3 font-mono text-xs text-ink-muted">
-                {ordererQr.qr_encrypted}
+              <p className="mt-2 text-xs text-ink-muted">
+                Read this {ordererQr.pickup_code.length}-character code to the club — it's the same
+                one in your email.
+              </p>
+              <p className="mt-1.5 rounded-xl bg-surface p-3 text-center font-mono text-lg font-bold tracking-[0.2em] text-ink">
+                {ordererQr.pickup_code}
               </p>
             </details>
           )}

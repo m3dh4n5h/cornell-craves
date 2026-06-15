@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ClubProvider, useClub } from "@/hooks/useClub";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
@@ -115,9 +116,13 @@ function RoleGate() {
     const path = location.pathname;
     if (club) {
       const blocked = CLUB_BLOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
-      if (blocked) navigate("/dashboard", { replace: true });
+      if (blocked) {
+        toast.info("That page is for student accounts.");
+        navigate("/dashboard", { replace: true });
+      }
     } else if (user && !isAdmin) {
       if (path === "/dashboard" || path.startsWith("/club/")) {
+        toast.info("That page is for club accounts.");
         navigate("/", { replace: true });
       }
     }
