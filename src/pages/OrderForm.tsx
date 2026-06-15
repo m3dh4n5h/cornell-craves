@@ -58,6 +58,8 @@ export default function OrderForm() {
   const [payMethod, setPayMethod] = useState<PaymentMethod | null>(null);
   const [venmo, setVenmo] = useState("");
   const [zelle, setZelle] = useState("");
+  // Optional "which member recommended you?" (Tranche 4 #2); blank = unset.
+  const [recommender, setRecommender] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +72,9 @@ export default function OrderForm() {
   const [splitEmails, setSplitEmails] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [createdGroup, setCreatedGroup] = useState<{ groupId: string; token: string } | null>(null);
+  // Private (invite-only) vs public (anyone fills open spots) — Tranche 4 #6.
+  const [groupVisibility, setGroupVisibility] = useState<"private" | "public">("private");
+  const [joiningPublic, setJoiningPublic] = useState(false);
 
   // Pre-fill from the signed-in profile; those fields render read-only.
   useEffect(() => {
@@ -162,11 +167,20 @@ export default function OrderForm() {
       p_proxy_email: proxyEnabled ? proxyEmail.trim().toLowerCase() : null,
       p_proxy_netid: proxyEnabled ? proxyNetid.trim().toLowerCase() || null : null,
     });
-    setSubmitting(false);
     if (rpcError) {
+      setSubmitting(false);
       toast.error(rpcError.message);
       return;
     }
+    // Best-effort: attach the recommender to the just-created order (#2).
+    if (recommender) {
+      const { error: recError } = await supabase.rpc("set_order_recommender", {
+        p_order_id: data as string,
+        p_value: recommender,
+      });
+      if (recError) console.warn("recommender not saved:", recError.message);
+    }
+    setSubmitting(false);
     setSavedEmail(email);
     setReviewOpen(false);
     setPlacedId(data as string);
@@ -267,15 +281,50 @@ export default function OrderForm() {
       p_item_name: splitItem.name,
       p_split_type: splitType,
       p_invited_emails: emails,
+      p_visibility: groupVisibility,
     });
     setCreatingGroup(false);
     if (rpcError) {
       toast.error(rpcError.message);
       return;
     }
-    const result = data as unknown as { group_id: string; open_token: string };
-    setCreatedGroup({ groupId: result.group_id, token: result.open_token });
-    toast.success("Split order started");
+    const result = data as unknown as { group_id: string; open_token: string | null };
+    if (result.open_token) {
+      setCreatedGroup({ groupId: result.group_id, token: result.open_token });
+    } else {
+      // Private group: no open link, members invite by email from My orders.
+      navigate("/orders");
+    }
+    toast.success(groupVisibility === "public" ? "Public group started" : "Private group started");
+  };
+
+  // Solo path: auto-join the earliest open public group for this item + size.
+  const joinPublic = async () => {
+    if (!listing || !splitItem) {
+      toast.error("Pick the item to split.");
+      return;
+    }
+    setJoiningPublic(true);
+    const { data, error: rpcError } = await supabase.rpc("join_or_create_public_group", {
+      p_listing_id: listing.id,
+      p_item: splitItem.name,
+      p_total_people: splitType,
+    });
+    setJoiningPublic(false);
+    if (rpcError) {
+      toast.error(rpcError.message);
+      return;
+    }
+    const result = data as unknown as { group_id: string; open_token?: string | null; joined: boolean };
+    if (result.joined) {
+      toast.success("You joined an open group. Track it in My orders.");
+      navigate("/orders");
+    } else if (result.open_token) {
+      setCreatedGroup({ groupId: result.group_id, token: result.open_token });
+      toast.success("No open group yet — started one others can join.");
+    } else {
+      navigate("/orders");
+    }
   };
 
   if (createdGroup) {
@@ -556,6 +605,34 @@ export default function OrderForm() {
                 )}
 
                 <div className="mt-4">
+                  <Label>Who can join?</Label>
+                  <div className="mt-1.5 flex gap-2" role="radiogroup" aria-label="Group visibility">
+                    {(["private", "public"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={groupVisibility === option}
+                        onClick={() => setGroupVisibility(option)}
+                        className={cn(
+                          "flex-1 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.98]",
+                          groupVisibility === option
+                            ? "border-primary-dark bg-surface-raised"
+                            : "border-border bg-surface-raised/60 hover-fine:border-primary",
+                        )}
+                      >
+                        <span className="block text-sm font-bold capitalize">{option}</span>
+                        <span className="block text-xs text-ink-muted">
+                          {option === "private"
+                            ? "Only people you invite can join."
+                            : "Anyone can fill the open spots."}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4">
                   <Label htmlFor="split-emails">Invite by email (optional)</Label>
                   <Input
                     id="split-emails"
@@ -564,8 +641,9 @@ export default function OrderForm() {
                     placeholder="friend1@cornell.edu, friend2@cornell.edu"
                   />
                   <p className="mt-1.5 text-xs text-ink-muted">
-                    They get an email with a join link. You also get a shareable link for
-                    the group chat.
+                    {groupVisibility === "private"
+                      ? "They get an email with a join link. Group members can invite more from My orders."
+                      : "Optional head start. Anyone can also fill open spots, and you get a shareable link."}
                   </p>
                 </div>
 
@@ -574,11 +652,35 @@ export default function OrderForm() {
                   className="mt-5 w-full"
                   size="lg"
                   loading={creatingGroup}
-                  disabled={!splitItem}
+                  disabled={!splitItem || joiningPublic}
                   onClick={() => void createGroup()}
                 >
-                  Start split order
+                  {groupVisibility === "public" ? "Start a public group" : "Start a private group"}
                 </Button>
+
+                {groupVisibility === "public" && (
+                  <>
+                    <div className="my-3 flex items-center gap-3 text-xs text-ink-muted">
+                      <span className="h-px flex-1 bg-border" />
+                      or
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      size="lg"
+                      loading={joiningPublic}
+                      disabled={!splitItem || creatingGroup}
+                      onClick={() => void joinPublic()}
+                    >
+                      Join an open group (I'm solo)
+                    </Button>
+                    <p className="mt-1.5 text-center text-xs text-ink-muted">
+                      We add you to the earliest open group for this item and split size, or start one.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </section>
@@ -653,6 +755,29 @@ export default function OrderForm() {
             )}
           </AnimatePresence>
         </section>
+
+        {/* Recommender (optional) */}
+        {listing.recommender_enabled && (listing.clubs?.member_options?.length ?? 0) > 0 && (
+          <section className="rounded-2xl border border-border bg-surface-raised p-4">
+            <Label htmlFor="order-recommender">Which member recommended you? (optional)</Label>
+            <select
+              id="order-recommender"
+              value={recommender}
+              onChange={(e) => setRecommender(e.target.value)}
+              className="mt-1.5 h-11 w-full rounded-xl border border-border bg-surface-raised px-3 text-base text-ink focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
+            >
+              <option value="">No one in particular</option>
+              {listing.clubs!.member_options.map((member) => (
+                <option key={member} value={member}>
+                  {member}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-ink-muted">
+              Helps {listing.clubs?.name ?? "the club"} credit the member who sent you.
+            </p>
+          </section>
+        )}
 
         {/* 5-6. Payment */}
         <section className="rounded-2xl border border-border bg-surface-raised p-4">

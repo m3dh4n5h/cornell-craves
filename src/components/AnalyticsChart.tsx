@@ -68,6 +68,79 @@ export function TrendLineChart({ data }: { data: TrendPoint[] }) {
   );
 }
 
+export interface RevenuePoint {
+  day: string;
+  revenue: number;
+}
+
+const moneyTick = (value: number) => `$${value}`;
+
+export function RevenueLineChart({ data }: { data: RevenuePoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -4 }}>
+        <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey="day"
+          tick={{ fontSize: 12, fill: "var(--color-ink-muted)" }}
+          tickLine={false}
+          axisLine={{ stroke: "var(--color-border)" }}
+        />
+        <YAxis
+          tickFormatter={moneyTick}
+          tick={{ fontSize: 12, fill: "var(--color-ink-muted)" }}
+          tickLine={false}
+          axisLine={false}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          cursor={{ stroke: "var(--color-border)" }}
+          formatter={(value: number) => [`$${Number(value).toFixed(2)}`, "Revenue"]}
+        />
+        <Line
+          type="monotone"
+          dataKey="revenue"
+          name="Revenue"
+          stroke="var(--color-primary-dark)"
+          strokeWidth={2.5}
+          dot={false}
+          activeDot={{ r: 4, fill: "var(--color-primary-dark)" }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+export interface RankDatum {
+  name: string;
+  value: number;
+}
+
+/** Horizontal ranked bar chart for revenue-per-item or recommender leaderboards. */
+export function RankBarChart({ data, money = false }: { data: RankDatum[]; money?: boolean }) {
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(160, data.length * 44)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 8 }}>
+        <XAxis type="number" allowDecimals={money} hide />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={120}
+          tick={{ fontSize: 12, fill: "var(--color-ink)" }}
+          tickLine={false}
+          axisLine={false}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          cursor={{ fill: "var(--color-border)", opacity: 0.3 }}
+          formatter={(value: number) => [money ? `$${Number(value).toFixed(2)}` : value, money ? "Revenue" : "Units"]}
+        />
+        <Bar dataKey="value" fill="var(--color-primary)" radius={[0, 8, 8, 0]} barSize={20} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 export interface TagCount {
   name: string;
   count: number;
@@ -105,7 +178,15 @@ function formatHour(hour: number): string {
  * Peak-interest heatmap: 7 days x 16 hours, cell intensity scaled to the
  * busiest cell. `matrix` is indexed [dayOfWeekMondayFirst][hour0to23].
  */
-export function PeakHeatmap({ matrix }: { matrix: number[][] }) {
+export function PeakHeatmap({
+  matrix,
+  unit = "order",
+  caption = "Darker cells mean more orders placed in that hour.",
+}: {
+  matrix: number[][];
+  unit?: string;
+  caption?: string;
+}) {
   const max = Math.max(1, ...matrix.flat());
 
   return (
@@ -136,16 +217,14 @@ export function PeakHeatmap({ matrix }: { matrix: number[][] }) {
                           ? "var(--color-border)"
                           : `color-mix(in oklab, var(--color-primary-dark) ${Math.max(intensity, 15)}%, var(--color-surface))`,
                     }}
-                    title={`${day} ${formatHour(hour)}: ${value} ${value === 1 ? "event" : "events"}`}
+                    title={`${day} ${formatHour(hour)}: ${value} ${value === 1 ? unit : `${unit}s`}`}
                   />
                 );
               })}
             </Fragment>
           ))}
         </div>
-        <p className="mt-2 text-xs text-ink-muted">
-          Darker cells mean more views and Venmo clicks in that hour.
-        </p>
+        <p className="mt-2 text-xs text-ink-muted">{caption}</p>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ImagePlus, UserRound } from "lucide-react";
+import { Check, ImagePlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -423,6 +423,33 @@ function ClubAccount({ club }: { club: Club }) {
   const [togglingGroups, setTogglingGroups] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  // Recommender member options (Tranche 4 #2), edited like a form dropdown.
+  const [memberOptions, setMemberOptions] = useState<string[]>(club.member_options ?? []);
+  const [newMember, setNewMember] = useState("");
+  const [savingMembers, setSavingMembers] = useState(false);
+
+  const persistMembers = async (next: string[]) => {
+    setSavingMembers(true);
+    const { error } = await supabase.from("clubs").update({ member_options: next }).eq("id", club.id);
+    setSavingMembers(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setMemberOptions(next);
+    await refetchClub();
+  };
+
+  const addMember = () => {
+    const name = newMember.trim();
+    if (!name) return;
+    if (memberOptions.some((member) => member.toLowerCase() === name.toLowerCase())) {
+      toast.error("That name is already on the list.");
+      return;
+    }
+    setNewMember("");
+    void persistMembers([...memberOptions, name]);
+  };
 
   // Upload a logo to the club-logos bucket and store its public URL (#14).
   const uploadLogo = async (file: File) => {
@@ -637,6 +664,58 @@ function ClubAccount({ club }: { club: Club }) {
       </div>
 
       <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+        <p className="text-sm font-bold">Members for "who recommended you?"</p>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          Add member names here, then turn on the question per listing. Buyers pick a name on the
+          order form so you can see who drove each sale.
+        </p>
+        {memberOptions.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {memberOptions.map((member) => (
+              <span
+                key={member}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold"
+              >
+                {member}
+                <button
+                  type="button"
+                  aria-label={`Remove ${member}`}
+                  disabled={savingMembers}
+                  onClick={() => void persistMembers(memberOptions.filter((entry) => entry !== member))}
+                  className="text-ink-muted hover-fine:text-accent disabled:opacity-50"
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="mt-3 flex gap-2">
+          <Input
+            value={newMember}
+            onChange={(e) => setNewMember(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addMember();
+              }
+            }}
+            placeholder="Member name"
+            aria-label="New member name"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            loading={savingMembers}
+            onClick={addMember}
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
         <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
           <span>
             <span className="block text-sm font-bold">Group ordering &amp; splitting</span>
@@ -679,7 +758,7 @@ function ClubAccount({ club }: { club: Club }) {
               setNeedsConsent(false);
               setConsent(false);
             }}
-            placeholder="Optional"
+            placeholder="phone number"
           />
         </div>
 

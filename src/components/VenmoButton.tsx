@@ -6,11 +6,9 @@ interface VenmoButtonProps {
   handle: string | null;
   note: string;
   disabled?: boolean;
-  /** Fires right before the Venmo deep link opens (analytics hook). */
-  onPay?: () => void;
 }
 
-export function VenmoButton({ handle, note, disabled = false, onPay }: VenmoButtonProps) {
+export function VenmoButton({ handle, note, disabled = false }: VenmoButtonProps) {
   if (!handle) {
     return (
       <Button size="lg" className="w-full" disabled>
@@ -27,10 +25,7 @@ export function VenmoButton({ handle, note, disabled = false, onPay }: VenmoButt
         size="lg"
         className="w-full"
         disabled={disabled}
-        onClick={() => {
-          onPay?.();
-          openVenmo(handle, note);
-        }}
+        onClick={() => openVenmo(handle, note)}
       >
         Pay with Venmo
         <ArrowUpRight className="size-4" aria-hidden="true" />

@@ -2,18 +2,35 @@ import type {
   ListingPickupSpotWithLocation,
   ListingWithClub,
   OrderType,
+  PickupType,
 } from "@/types/database";
 
-/** Human label for a spot's ordering rule (Batch 2 #3). */
+/** Human label for a spot's ordering rule (Batch 2 #3, Tranche 4 #5). */
 export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   same_day: "Same-day pickup",
   preorder: "Pre-order only",
+  both: "Pre-order & same-day",
 };
 
 /** Short label for tight spots (map popups, feed chips). */
 export const ORDER_TYPE_SHORT: Record<OrderType, string> = {
   same_day: "Same-day",
   preorder: "Pre-order",
+  both: "Pre-order + same-day",
+};
+
+/** Badge variant per order type, shared across feed/detail/map. */
+export const ORDER_TYPE_BADGE: Record<OrderType, "success" | "default" | "neutral"> = {
+  same_day: "success",
+  preorder: "default",
+  both: "neutral",
+};
+
+/** Map an order type to the campus-location PickupType used for pin colour. */
+export const ORDER_TYPE_TO_PICKUP_TYPE: Record<OrderType, PickupType> = {
+  same_day: "same_day_only",
+  preorder: "preorder_only",
+  both: "both",
 };
 
 export function listingSpots(listing: ListingWithClub): ListingPickupSpotWithLocation[] {
@@ -23,7 +40,7 @@ export function listingSpots(listing: ListingWithClub): ListingPickupSpotWithLoc
 /** Distinct order types offered across a listing's spots, in a stable order. */
 export function listingOrderTypes(listing: ListingWithClub): OrderType[] {
   const present = new Set(listingSpots(listing).map((spot) => spot.order_type));
-  return (["same_day", "preorder"] as OrderType[]).filter((type) => present.has(type));
+  return (["same_day", "preorder", "both"] as OrderType[]).filter((type) => present.has(type));
 }
 
 /**

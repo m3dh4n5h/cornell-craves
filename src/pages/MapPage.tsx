@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
+import { Map as MapGL, Marker, NavigationControl, type MapRef } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { createBrandPin } from "@/components/MapPin";
+import { BrandPin } from "@/components/MapPin";
 import { BrandFilter } from "@/components/BrandFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,14 +16,19 @@ import {
   formatPickupDay,
   hasUpcomingPickup,
   nextPickup,
+  ORDER_TYPE_BADGE,
   ORDER_TYPE_SHORT,
+  ORDER_TYPE_TO_PICKUP_TYPE,
 } from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
 import { getTimeLeft } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { DietaryTagId, ListingWithClub, OrderType, PickupType } from "@/types/database";
 
-const CORNELL_CENTER: [number, number] = [42.4534, -76.4735];
+const CORNELL_CENTER = { longitude: -76.4735, latitude: 42.4534 };
+// OpenFreeMap "liberty": free, no API key, labeled vector style with building
+// and street names. Tiles/sprites/glyphs all come from *.openfreemap.org.
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 interface LocationEntry {
   listing: ListingWithClub;
@@ -39,24 +44,9 @@ interface LocationGroup {
   entries: LocationEntry[];
 }
 
-function FlyTo({ target }: { target: [number, number] | null }) {
-  const map = useMap();
-  const reduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (!target) return;
-    if (reduceMotion) {
-      map.setView(target, 16);
-    } else {
-      map.flyTo(target, 16, { duration: 0.8 });
-    }
-  }, [map, target, reduceMotion]);
-
-  return null;
-}
-
 export default function MapPage() {
   const reduceMotion = useReducedMotion();
+  const mapRef = useRef<MapRef>(null);
   const [listings, setListings] = useState<ListingWithClub[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,7 +61,7 @@ export default function MapPage() {
     const { data, error } = await supabase
       .from("listings")
       .select(
-        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url), campus_locations(name, latitude, longitude, pickup_type), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description)), pickup_slots(start_time, end_time)",
+        "*, clubs(name, venmo, zelle_phone, groups_enabled, logo_url, member_options), campus_locations(name, latitude, longitude, pickup_type), listing_pickup_spots(*, campus_locations(id, name, latitude, longitude, description)), pickup_slots(start_time, end_time)",
       )
       .eq("active", true)
       .gt("expires_at", nowIso)
@@ -128,9 +118,7 @@ export default function MapPage() {
                       lat: Number(spot.campus_locations.latitude),
                       lng: Number(spot.campus_locations.longitude),
                       orderType: spot.order_type as OrderType | null,
-                      pickupType: (spot.order_type === "same_day"
-                        ? "same_day_only"
-                        : "preorder_only") as PickupType,
+                      pickupType: ORDER_TYPE_TO_PICKUP_TYPE[spot.order_type],
                     },
                   ]
                 : [],
@@ -167,6 +155,16 @@ export default function MapPage() {
   }, [filtered]);
 
   const selectedGroup = groups.find((group) => group.key === selectedKey) ?? null;
+
+  // Pan to the chosen drop's pin when one is selected.
+  useEffect(() => {
+    if (!selectedGroup) return;
+    mapRef.current?.flyTo({
+      center: { lng: selectedGroup.position[1], lat: selectedGroup.position[0] },
+      zoom: 16,
+      duration: reduceMotion ? 0 : 800,
+    });
+  }, [selectedGroup, reduceMotion]);
 
   const pinnedIds = useMemo(() => {
     const ids = new Set<string>();
@@ -254,34 +252,33 @@ export default function MapPage() {
           </div>
         ) : (
           <>
-            <MapContainer
-              center={CORNELL_CENTER}
-              zoom={15}
-              scrollWheelZoom
-              className="h-full w-full"
+            <MapGL
+              ref={mapRef}
+              initialViewState={{ ...CORNELL_CENTER, zoom: 14.5 }}
+              mapStyle={MAP_STYLE}
+              style={{ width: "100%", height: "100%" }}
             >
-              {/* CARTO Voyager: warm, low-saturation tiles that sit well under saffron pins. */}
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-              />
-              <FlyTo target={selectedGroup?.position ?? null} />
+              <NavigationControl position="top-right" showCompass={false} />
               {groups.map((group) => (
                 <Marker
                   key={group.key}
-                  position={group.position}
-                  icon={createBrandPin(
-                    group.entries[0].listing.brand,
-                    group.entries.length,
-                    group.key === selectedKey,
-                    group.pickupType,
-                  )}
-                  eventHandlers={{
-                    click: () => setSelectedKey(group.key === selectedKey ? null : group.key),
+                  longitude={group.position[1]}
+                  latitude={group.position[0]}
+                  anchor="bottom"
+                  onClick={(event) => {
+                    event.originalEvent.stopPropagation();
+                    setSelectedKey(group.key === selectedKey ? null : group.key);
                   }}
-                />
+                >
+                  <BrandPin
+                    brand={group.entries[0].listing.brand}
+                    count={group.entries.length}
+                    active={group.key === selectedKey}
+                    pickupType={group.pickupType}
+                  />
+                </Marker>
               ))}
-            </MapContainer>
+            </MapGL>
 
             {groups.length === 0 && (
               <div className="z-raised absolute inset-x-4 top-4 rounded-2xl border border-border bg-surface-raised/95 p-4 text-center backdrop-blur-md">
@@ -356,7 +353,7 @@ export default function MapPage() {
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-1">
                         {orderType && (
-                          <Badge variant={orderType === "same_day" ? "success" : "default"}>
+                          <Badge variant={ORDER_TYPE_BADGE[orderType]}>
                             {ORDER_TYPE_SHORT[orderType]}
                           </Badge>
                         )}

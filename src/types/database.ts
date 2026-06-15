@@ -28,13 +28,14 @@ export type Club = {
   approved: boolean;
   groups_enabled: boolean;
   logo_url: string | null;
+  member_options: string[];
   created_at: string;
 };
 
 export type PickupType = "same_day_only" | "preorder_only" | "both";
 
-/** Per-spot ordering rule (Batch 2 #3). */
-export type OrderType = "same_day" | "preorder";
+/** Per-spot ordering rule (Batch 2 #3, Tranche 4 #5 adds "both"). */
+export type OrderType = "same_day" | "preorder" | "both";
 
 export type CampusLocation = {
   id: string;
@@ -43,6 +44,8 @@ export type CampusLocation = {
   longitude: number;
   description: string | null;
   pickup_type: PickupType;
+  /** Club that added this spot, or null for the curated list (Tranche 4 #4). */
+  created_by: string | null;
   created_at: string;
 };
 
@@ -96,6 +99,7 @@ export type Listing = {
   pickup_info: string | null;
   pickup_location_id: string | null;
   contact_email: string | null;
+  recommender_enabled: boolean;
   avg_rating: number;
   review_count: number;
   expires_at: string;
@@ -105,7 +109,10 @@ export type Listing = {
 };
 
 export type ListingWithClub = Listing & {
-  clubs: Pick<Club, "name" | "venmo" | "zelle_phone" | "groups_enabled" | "logo_url"> | null;
+  clubs: Pick<
+    Club,
+    "name" | "venmo" | "zelle_phone" | "groups_enabled" | "logo_url" | "member_options"
+  > | null;
   campus_locations?: Pick<CampusLocation, "name" | "latitude" | "longitude" | "pickup_type"> | null;
   /** All pickup spots for this drop (Batch 2 #2/#3), embedded from the join table. */
   listing_pickup_spots?: ListingPickupSpotWithLocation[];
@@ -244,6 +251,7 @@ export type Order = {
   picked_up_by_name: string | null;
   picked_up_by_email: string | null;
   picked_up_at: string | null;
+  recommended_by: string | null;
   created_at: string;
 };
 
@@ -278,6 +286,8 @@ export type GroupStatus =
 
 export type GroupMemberStatus = "invited" | "accepted" | "pending_payment" | "paid";
 
+export type GroupVisibility = "private" | "public";
+
 export type OrderGroup = {
   id: string;
   listing_id: string;
@@ -289,6 +299,7 @@ export type OrderGroup = {
   filled_count: number;
   deadline: string;
   status: GroupStatus;
+  visibility: GroupVisibility;
   created_by: string;
   created_at: string;
 };
@@ -372,6 +383,7 @@ type ClubInsert = {
   approved?: boolean;
   groups_enabled?: boolean;
   logo_url?: string | null;
+  member_options?: string[];
   created_at?: string;
 };
 
@@ -401,6 +413,7 @@ type ListingInsert = {
   pickup_info?: string | null;
   pickup_location_id?: string | null;
   contact_email?: string | null;
+  recommender_enabled?: boolean;
   avg_rating?: number;
   review_count?: number;
   expires_at: string;
@@ -499,6 +512,7 @@ type CampusLocationInsert = {
   longitude: number;
   description?: string | null;
   pickup_type?: PickupType;
+  created_by?: string | null;
   created_at?: string;
 };
 
@@ -535,6 +549,7 @@ type OrderInsert = {
   picked_up_by_name?: string | null;
   picked_up_by_email?: string | null;
   picked_up_at?: string | null;
+  recommended_by?: string | null;
   created_at?: string;
 };
 
@@ -790,7 +805,7 @@ export type Database = {
     Views: { [_ in never]: never };
     Functions: {
       track_event: {
-        Args: { p_listing_id: string; p_event_type: "view" | "venmo_click" };
+        Args: { p_listing_id: string; p_event_type: "view" };
         Returns: undefined;
       };
       upsert_my_craving: {
@@ -822,6 +837,14 @@ export type Database = {
       delete_my_account: {
         Args: Record<string, never>;
         Returns: undefined;
+      };
+      set_order_recommender: {
+        Args: { p_order_id: string; p_value: string };
+        Returns: undefined;
+      };
+      add_campus_location: {
+        Args: { p_name: string; p_lat: number; p_lng: number; p_description?: string | null };
+        Returns: CampusLocation;
       };
       request_brand: {
         Args: { p_name: string };
@@ -895,8 +918,17 @@ export type Database = {
           p_item_name: string;
           p_split_type: number;
           p_invited_emails?: string[];
+          p_visibility?: GroupVisibility;
         };
-        Returns: { group_id: string; open_token: string };
+        Returns: { group_id: string; open_token: string | null };
+      };
+      join_or_create_public_group: {
+        Args: { p_listing_id: string; p_item: string; p_total_people: number };
+        Returns: { group_id: string; open_token?: string | null; joined: boolean };
+      };
+      invite_to_group: {
+        Args: { p_group_id: string; p_emails: string[] };
+        Returns: undefined;
       };
       accept_group_invite: {
         Args: { p_token: string };

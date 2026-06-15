@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
+import { geocodeAddress } from "@/lib/geocode";
 import { formatExpiry } from "@/lib/format";
 import type {
   CampusLocation,
@@ -239,6 +240,7 @@ function SpotsEditor({
             >
               <option value="preorder">Pre-order only</option>
               <option value="same_day">Same-day pickup</option>
+              <option value="both">Pre-order &amp; same-day</option>
             </select>
           </div>
           <Button
@@ -265,11 +267,19 @@ interface ListingFormProps {
   club: Club;
   initial: ListingWithClub | null;
   locations: CampusLocation[];
+  onLocationAdded: (location: CampusLocation) => void;
   onSaved: () => void;
   onCancel: () => void;
 }
 
-function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFormProps) {
+function ListingForm({
+  club,
+  initial,
+  locations,
+  onLocationAdded,
+  onSaved,
+  onCancel,
+}: ListingFormProps) {
   const [brand, setBrand] = useState(initial?.brand ?? "");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -281,6 +291,8 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
   // Contact email is per-listing and required on every drop (Batch 2 #1). On
   // edit it loads the existing value; on a new listing it starts blank.
   const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
+  // Show the "which member recommended you?" question on the order form (#2).
+  const [recommenderEnabled, setRecommenderEnabled] = useState(initial?.recommender_enabled ?? false);
   const [expiresAt, setExpiresAt] = useState(
     initial
       ? toDatetimeLocal(new Date(initial.expires_at))
@@ -294,6 +306,43 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
   const brandOptions = useBrandOptions();
   const [requestingBrand, setRequestingBrand] = useState(false);
   const [requestedBrands, setRequestedBrands] = useState<string[]>([]);
+  // Add a custom pickup location by name + address, geocoded via Nominatim (#4).
+  const [customName, setCustomName] = useState("");
+  const [customAddress, setCustomAddress] = useState("");
+  const [addingLocation, setAddingLocation] = useState(false);
+
+  const addCustomLocation = async () => {
+    const name = customName.trim();
+    const address = customAddress.trim();
+    if (name.length < 2 || address.length < 4) {
+      toast.error("Enter a name and a full street address.");
+      return;
+    }
+    setAddingLocation(true);
+    const geo = await geocodeAddress(address);
+    if (!geo) {
+      setAddingLocation(false);
+      toast.error("Couldn't find that address. Try adding \"Ithaca, NY\".");
+      return;
+    }
+    const { data, error } = await supabase.rpc("add_campus_location", {
+      p_name: name,
+      p_lat: geo.lat,
+      p_lng: geo.lng,
+      p_description: address,
+    });
+    setAddingLocation(false);
+    if (error || !data) {
+      toast.error(error?.message ?? "Could not save the spot");
+      return;
+    }
+    const location = data as CampusLocation;
+    onLocationAdded(location);
+    setSpots((previous) => [...previous, { locationId: location.id, orderType: "preorder" }]);
+    setCustomName("");
+    setCustomAddress("");
+    toast.success(`Added "${location.name}". It's selected as a pickup spot below.`);
+  };
 
   const initialId = initial?.id ?? null;
 
@@ -430,6 +479,7 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
       pickup_info: pickupInfo.trim() || null,
       pickup_location_id: firstSpot,
       contact_email: contactEmail.trim(),
+      recommender_enabled: recommenderEnabled,
       expires_at: new Date(expiresAt).toISOString(),
     };
 
@@ -596,6 +646,39 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
         <Label>Pickup spots (show on the map)</Label>
         <SpotsEditor spots={spots} locations={locations} onChange={setSpots} />
         <FieldError message={showErrors ? errors.spots : undefined} />
+        <details className="mt-2 rounded-xl border border-border/70 p-3">
+          <summary className="cursor-pointer text-sm font-semibold">Add a custom spot</summary>
+          <p className="mt-2 text-xs text-ink-muted">
+            Not in the list? Add a name and street address; we place it on the map for you.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Input
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              placeholder="Spot name (e.g. Phi Psi house)"
+              aria-label="Custom spot name"
+              className="h-10"
+            />
+            <Input
+              value={customAddress}
+              onChange={(e) => setCustomAddress(e.target.value)}
+              placeholder="312 Thurston Ave, Ithaca NY"
+              aria-label="Street address"
+              className="h-10"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="mt-2"
+            loading={addingLocation}
+            onClick={() => void addCustomLocation()}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Find &amp; add spot
+          </Button>
+        </details>
       </div>
 
       <div className="mt-5">
@@ -612,6 +695,27 @@ function ListingForm({ club, initial, locations, onSaved, onCancel }: ListingFor
         <Label>Pickup days</Label>
         <SlotsEditor slots={slots} onChange={setSlots} />
         <FieldError message={showErrors ? errors.slots : undefined} />
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={recommenderEnabled}
+            onChange={(e) => setRecommenderEnabled(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
+          />
+          <span>
+            <span className="block text-sm font-semibold">
+              Ask "which member recommended you?" on the order form
+            </span>
+            <span className="block text-xs text-ink-muted">
+              {club.member_options.length > 0
+                ? `Buyers pick from your ${club.member_options.length} member ${club.member_options.length === 1 ? "name" : "names"}. Edit the list on your Account page.`
+                : "Add member names on your Account page first, or the dropdown will be empty."}
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="mt-6 flex items-center justify-end gap-2">
@@ -697,11 +801,15 @@ export default function Dashboard() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [locations, setLocations] = useState<CampusLocation[]>([]);
 
+  const userId = user?.id ?? null;
   useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
+    // Curated list (created_by null) plus this club's own added spots (#4).
     void supabase
       .from("campus_locations")
       .select("*")
+      .or(`created_by.is.null,created_by.eq.${userId}`)
       .order("name")
       .then(({ data }) => {
         if (!cancelled) setLocations(data ?? []);
@@ -709,7 +817,13 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
+
+  const addLocation = (location: CampusLocation) => {
+    setLocations((previous) =>
+      [...previous, location].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  };
 
   if (authLoading || (user && clubLoading)) {
     return <DashboardSkeleton />;
@@ -824,6 +938,7 @@ export default function Dashboard() {
               club={club}
               initial={editingListing}
               locations={locations}
+              onLocationAdded={addLocation}
               onSaved={() => {
                 setFormMode("closed");
                 void refetch();

@@ -4,7 +4,7 @@ import { MapPin, Star } from "lucide-react";
 import type { ListingWithClub } from "@/types/database";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
-import { listingOrderTypes, ORDER_TYPE_LABEL } from "@/lib/pickup";
+import { listingOrderTypes, ORDER_TYPE_BADGE, ORDER_TYPE_LABEL } from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
 import { useCountdown } from "@/hooks/useCountdown";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +91,7 @@ export function ListingCard({ listing }: ListingCardProps) {
         {orderTypes.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {orderTypes.map((type) => (
-              <Badge key={type} variant={type === "same_day" ? "success" : "default"}>
+              <Badge key={type} variant={ORDER_TYPE_BADGE[type]}>
                 {ORDER_TYPE_LABEL[type]}
               </Badge>
             ))}

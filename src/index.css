@@ -196,19 +196,16 @@
 .craves-map {
   isolation: isolate;
 }
-.craves-map .leaflet-container {
+.craves-map .maplibregl-map {
   width: 100%;
   height: 100%;
   font-family: var(--font-body);
   background-color: var(--color-surface);
 }
 
-/* Custom saffron map pin (used via L.divIcon in MapPin.tsx) */
-.craves-pin-wrapper {
-  background: transparent;
-  border: none;
-}
+/* Custom saffron map pin (rendered inside a MapLibre <Marker> in MapPin.tsx) */
 .craves-pin {
+  cursor: pointer;
   position: relative;
   display: flex;
   align-items: center;

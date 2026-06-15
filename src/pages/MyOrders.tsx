@@ -17,6 +17,7 @@ import { QRCodeView } from "@/components/QRCodeView";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { GroupDetails, MyOrder } from "@/types/database";
 
@@ -98,9 +99,34 @@ function OrderCard({ order, onCancelled }: { order: MyOrder; onCancelled: () => 
 
 function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
   const status = GROUP_STATUS_META[group.status];
-  const isCreator = group.created_by === userId;
   const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
   const myPaid = group.my_status === "paid";
+  const [inviteEmails, setInviteEmails] = useState("");
+  const [inviting, setInviting] = useState(false);
+
+  // Any member of a filling group can invite others (Tranche 4 #6).
+  const inviteByEmail = async () => {
+    const emails = inviteEmails
+      .split(/[,\n;]+/)
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry));
+    if (emails.length === 0) {
+      toast.error("Add at least one valid email.");
+      return;
+    }
+    setInviting(true);
+    const { error } = await supabase.rpc("invite_to_group", {
+      p_group_id: group.id,
+      p_emails: emails,
+    });
+    setInviting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setInviteEmails("");
+    toast.success("Invites sent.");
+  };
 
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
@@ -143,12 +169,38 @@ function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
         <GroupMembers group={group} currentUserId={userId} />
       </div>
 
-      {group.status === "filling" && isCreator && group.open_token && (
-        <div className="mt-4">
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            Invite link
-          </p>
-          <GroupInviteLink token={group.open_token} />
+      {group.status === "filling" && (
+        <div className="mt-4 space-y-3">
+          {group.visibility === "public" && group.open_token && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Share link (anyone can fill a spot)
+              </p>
+              <GroupInviteLink token={group.open_token} />
+            </div>
+          )}
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              Invite by email
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={inviteEmails}
+                onChange={(e) => setInviteEmails(e.target.value)}
+                placeholder="friend@cornell.edu"
+                aria-label="Invite by email"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                loading={inviting}
+                onClick={() => void inviteByEmail()}
+              >
+                Invite
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -17,10 +17,10 @@ import { useListing } from "@/hooks/useListings";
 import { useCountdown } from "@/hooks/useCountdown";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
-import { trackListingView, trackVenmoClick } from "@/lib/analytics";
+import { trackListingView } from "@/lib/analytics";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
-import { ORDER_TYPE_SHORT } from "@/lib/pickup";
+import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT } from "@/lib/pickup";
 import { formatPrice } from "@/lib/format";
 import { VenmoButton } from "@/components/VenmoButton";
 import { AllergenIcon } from "@/components/AllergenIcon";
@@ -100,7 +100,6 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
           handle={listing.clubs?.venmo ?? null}
           note={note}
           disabled={timeLeft.expired || !listing.active}
-          onPay={() => trackVenmoClick(listing.id)}
         />
       </div>
       {zelle && (
@@ -333,7 +332,7 @@ export default function ListingDetail() {
                 >
                   <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
                   {spot.campus_locations?.name ?? "Pickup spot"}
-                  <Badge variant={spot.order_type === "same_day" ? "success" : "default"}>
+                  <Badge variant={ORDER_TYPE_BADGE[spot.order_type]}>
                     {ORDER_TYPE_SHORT[spot.order_type]}
                   </Badge>
                 </Link>

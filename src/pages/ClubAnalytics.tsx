@@ -3,16 +3,32 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowLeft, BarChart3 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { PeakHeatmap, TagBarChart, TrendLineChart, type TrendPoint } from "@/components/AnalyticsChart";
+import {
+  PeakHeatmap,
+  RankBarChart,
+  RevenueLineChart,
+  TagBarChart,
+  type RevenuePoint,
+} from "@/components/AnalyticsChart";
 import { EmptyState } from "@/components/EmptyState";
 import { RatingStars } from "@/components/RatingStars";
 import { DIETARY_TAGS, isDietaryTagId } from "@/lib/dietary";
+import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Listing, PickupSlot, QAEntry } from "@/types/database";
+import type { GroupDetails, Listing, OrderItem, QAEntry } from "@/types/database";
 
-interface EventRow {
+/** Only verified payments count toward money figures (Tranche 4 #1). */
+interface VerifiedOrder {
   listing_id: string;
-  event_type: "view" | "venmo_click";
+  total: number;
+  items_json: OrderItem[];
+  orderer_email: string;
+  recommended_by: string | null;
+  created_at: string;
+}
+
+interface ViewRow {
+  listing_id: string;
   created_at: string;
 }
 
@@ -48,12 +64,13 @@ function AnalyticsSkeleton() {
 export default function ClubAnalytics() {
   const { clubId } = useParams<{ clubId: string }>();
   const { user, loading: authLoading } = useAuth();
-  const [events, setEvents] = useState<EventRow[]>([]);
+  const [orders, setOrders] = useState<VerifiedOrder[]>([]);
+  const [views, setViews] = useState<ViewRow[]>([]);
+  const [groups, setGroups] = useState<GroupDetails[]>([]);
   const [listings, setListings] = useState<ListingLite[]>([]);
-  const [slots, setSlots] = useState<Pick<PickupSlot, "listing_id" | "max_reservations" | "reserved_count">[]>([]);
   const [qaEntries, setQaEntries] = useState<Pick<QAEntry, "listing_id" | "created_at" | "response_date">[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<7 | 30>(7);
+  const [range, setRange] = useState<7 | 30>(30);
 
   const userId = user?.id ?? null;
 
@@ -64,38 +81,41 @@ export default function ClubAnalytics() {
       setLoading(true);
       const cutoff = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
 
-      const [eventsResult, listingsResult] = await Promise.all([
-        supabase
-          .from("analytics_events")
-          .select("listing_id, event_type, created_at")
-          .eq("club_id", userId)
-          .gte("created_at", cutoff),
-        supabase
-          .from("listings")
-          .select("id, title, brand, avg_rating, review_count, items, active")
-          .eq("club_id", userId),
-      ]);
+      const listingsResult = await supabase
+        .from("listings")
+        .select("id, title, brand, avg_rating, review_count, items, active")
+        .eq("club_id", userId);
       if (cancelled) return;
 
       const ownListings = (listingsResult.data as ListingLite[] | null) ?? [];
       const ids = ownListings.map((listing) => listing.id);
 
-      const [slotsResult, qaResult] =
+      const [ordersResult, viewsResult, qaResult, groupsResult] =
         ids.length > 0
           ? await Promise.all([
               supabase
-                .from("pickup_slots")
-                .select("listing_id, max_reservations, reserved_count")
-                .in("listing_id", ids),
+                .from("orders")
+                .select("listing_id, total, items_json, orderer_email, recommended_by, created_at")
+                .in("listing_id", ids)
+                .eq("payment_verified", true)
+                .gte("created_at", cutoff),
+              supabase
+                .from("analytics_events")
+                .select("listing_id, created_at")
+                .eq("club_id", userId)
+                .eq("event_type", "view")
+                .gte("created_at", cutoff),
               supabase.from("qa").select("listing_id, created_at, response_date").in("listing_id", ids),
+              supabase.rpc("get_club_groups"),
             ])
-          : [{ data: [] }, { data: [] }];
+          : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
       if (cancelled) return;
 
-      setEvents((eventsResult.data as EventRow[] | null) ?? []);
       setListings(ownListings);
-      setSlots(slotsResult.data ?? []);
+      setOrders((ordersResult.data as VerifiedOrder[] | null) ?? []);
+      setViews((viewsResult.data as ViewRow[] | null) ?? []);
       setQaEntries(qaResult.data ?? []);
+      setGroups(((groupsResult.data as unknown as GroupDetails[]) ?? []).filter(Boolean));
       setLoading(false);
     };
     void load();
@@ -106,39 +126,117 @@ export default function ClubAnalytics() {
 
   const computed = useMemo(() => {
     const cutoff = Date.now() - range * 24 * 3_600_000;
-    const inRange = events.filter((event) => new Date(event.created_at).getTime() >= cutoff);
+    const inRange = orders.filter((order) => new Date(order.created_at).getTime() >= cutoff);
+    const viewsInRange = views.filter((view) => new Date(view.created_at).getTime() >= cutoff);
+    // Only paid members of a group count as money in the bank.
+    const groupsInRange = groups.filter((group) => new Date(group.created_at).getTime() >= cutoff);
 
-    const views = inRange.filter((event) => event.event_type === "view").length;
-    const clicks = inRange.filter((event) => event.event_type === "venmo_click").length;
-    const ctr = views > 0 ? (clicks / views) * 100 : 0;
+    const soloRevenue = inRange.reduce((sum, order) => sum + Number(order.total), 0);
 
-    const trend: TrendPoint[] = Array.from({ length: range }, (_, index) => {
+    // Unique buyers + group revenue + per-item + per-listing all in one pass.
+    const buyers = new Set<string>();
+    const itemAgg = new Map<string, { units: number; revenue: number }>();
+    const byListing = new Map<string, { revenue: number; orders: number }>();
+    const recommenders = new Map<string, number>();
+
+    const bumpItem = (name: string, units: number, revenue: number) => {
+      const entry = itemAgg.get(name) ?? { units: 0, revenue: 0 };
+      entry.units += units;
+      entry.revenue += revenue;
+      itemAgg.set(name, entry);
+    };
+    const bumpListing = (id: string, revenue: number, orders: number) => {
+      const entry = byListing.get(id) ?? { revenue: 0, orders: 0 };
+      entry.revenue += revenue;
+      entry.orders += orders;
+      byListing.set(id, entry);
+    };
+
+    for (const order of inRange) {
+      buyers.add(`email:${order.orderer_email.toLowerCase()}`);
+      bumpListing(order.listing_id, Number(order.total), 1);
+      for (const line of order.items_json ?? []) {
+        bumpItem(line.name, Number(line.qty), Number(line.price) * Number(line.qty));
+      }
+      const ref = order.recommended_by?.trim();
+      if (ref) recommenders.set(ref, (recommenders.get(ref) ?? 0) + Number(order.total));
+    }
+
+    let groupRevenue = 0;
+    for (const group of groupsInRange) {
+      const perPerson = group.units_per_person ?? Math.floor(group.item_quantity / Math.max(group.total_people, 1));
+      for (const member of group.members) {
+        if (member.status !== "paid") continue;
+        groupRevenue += Number(group.share_amount);
+        buyers.add(`uid:${member.user_id}`);
+        bumpListing(group.listing_id, Number(group.share_amount), 1);
+        bumpItem(group.item_name, perPerson, Number(group.share_amount));
+      }
+    }
+
+    const totalRevenue = soloRevenue + groupRevenue;
+    const orderCount = inRange.length;
+    const avgOrderValue = orderCount > 0 ? soloRevenue / orderCount : 0;
+
+    // Box size per item name, to express sell-through in boxes where set.
+    const boxSize = new Map<string, number>();
+    for (const listing of listings) {
+      for (const item of listing.items ?? []) {
+        const qty = Math.max(1, item.quantity ?? 1);
+        boxSize.set(item.name, Math.max(boxSize.get(item.name) ?? 1, qty));
+      }
+    }
+
+    const items = [...itemAgg.entries()]
+      .map(([name, agg]) => ({
+        name,
+        units: agg.units,
+        revenue: agg.revenue,
+        box: boxSize.get(name) ?? 1,
+      }))
+      .sort((a, b) => b.units - a.units);
+
+    const itemRevenueChart = items
+      .map((item) => ({ name: item.name, value: Math.round(item.revenue * 100) / 100 }))
+      .slice(0, 8);
+
+    const leaderboard = [...recommenders.entries()]
+      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+      .sort((a, b) => b.value - a.value);
+
+    // Daily revenue trend (solo orders + paid group shares by created_at).
+    const revenueByDay = new Map<number, number>();
+    const dayKey = (iso: string) => {
+      const date = new Date(iso);
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    };
+    for (const order of inRange) {
+      revenueByDay.set(dayKey(order.created_at), (revenueByDay.get(dayKey(order.created_at)) ?? 0) + Number(order.total));
+    }
+    for (const group of groupsInRange) {
+      const paid = group.members.filter((member) => member.status === "paid").length;
+      if (paid === 0) continue;
+      const add = paid * Number(group.share_amount);
+      revenueByDay.set(dayKey(group.created_at), (revenueByDay.get(dayKey(group.created_at)) ?? 0) + add);
+    }
+    const trend: RevenuePoint[] = Array.from({ length: range }, (_, index) => {
       const date = new Date();
       date.setHours(0, 0, 0, 0);
       date.setDate(date.getDate() - (range - 1 - index));
-      const next = new Date(date);
-      next.setDate(date.getDate() + 1);
-      const dayEvents = inRange.filter((event) => {
-        const time = new Date(event.created_at).getTime();
-        return time >= date.getTime() && time < next.getTime();
-      });
       return {
         day: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        views: dayEvents.filter((event) => event.event_type === "view").length,
-        clicks: dayEvents.filter((event) => event.event_type === "venmo_click").length,
+        revenue: Math.round((revenueByDay.get(date.getTime()) ?? 0) * 100) / 100,
       };
     });
 
+    // Peak ORDER times (Tranche 4 #1: heatmap driven off orders).
     const heatmap: number[][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
-    for (const event of inRange) {
-      const date = new Date(event.created_at);
+    for (const order of inRange) {
+      const date = new Date(order.created_at);
       const day = (date.getDay() + 6) % 7; // Monday-first
       heatmap[day][date.getHours()] += 1;
     }
-
-    const fillRates = slots.map((slot) => slot.reserved_count / slot.max_reservations);
-    const reservationRate =
-      fillRates.length > 0 ? (fillRates.reduce((sum, rate) => sum + rate, 0) / fillRates.length) * 100 : null;
 
     const rated = listings.filter((listing) => listing.review_count > 0);
     const reviewCount = rated.reduce((sum, listing) => sum + listing.review_count, 0);
@@ -161,35 +259,40 @@ export default function ClubAnalytics() {
     for (const listing of listings) {
       for (const item of listing.items ?? []) {
         for (const tag of item.dietary_tags ?? []) {
-          if (isDietaryTagId(tag)) {
-            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-          }
+          if (isDietaryTagId(tag)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
         }
       }
     }
     const dietary = [...tagCounts.entries()]
-      .map(([tag, count]) => ({
-        name: DIETARY_TAGS[tag as keyof typeof DIETARY_TAGS].label,
-        count,
-      }))
+      .map(([tag, count]) => ({ name: DIETARY_TAGS[tag as keyof typeof DIETARY_TAGS].label, count }))
       .sort((a, b) => b.count - a.count);
 
+    const viewsByListing = new Map<string, number>();
+    for (const view of viewsInRange) {
+      viewsByListing.set(view.listing_id, (viewsByListing.get(view.listing_id) ?? 0) + 1);
+    }
+
     const perListing = listings
-      .map((listing) => {
-        const listingEvents = inRange.filter((event) => event.listing_id === listing.id);
-        const listingViews = listingEvents.filter((event) => event.event_type === "view").length;
-        const listingClicks = listingEvents.filter((event) => event.event_type === "venmo_click").length;
-        return { listing, views: listingViews, clicks: listingClicks };
-      })
-      .sort((a, b) => b.views - a.views);
+      .map((listing) => ({
+        listing,
+        revenue: byListing.get(listing.id)?.revenue ?? 0,
+        orders: byListing.get(listing.id)?.orders ?? 0,
+        views: viewsByListing.get(listing.id) ?? 0,
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
 
     return {
-      views,
-      clicks,
-      ctr,
+      totalRevenue,
+      groupRevenue,
+      orderCount,
+      avgOrderValue,
+      uniqueBuyers: buyers.size,
+      totalViews: viewsInRange.length,
+      items,
+      itemRevenueChart,
+      leaderboard,
       trend,
       heatmap,
-      reservationRate,
       avgRating,
       reviewCount,
       qaTotal: qaEntries.length,
@@ -198,12 +301,15 @@ export default function ClubAnalytics() {
       dietary,
       perListing,
     };
-  }, [events, listings, slots, qaEntries, range]);
+  }, [orders, views, groups, listings, qaEntries, range]);
 
   if (authLoading) return <AnalyticsSkeleton />;
   if (!user) return <Navigate to="/login" replace />;
   if (clubId !== user.id) return <Navigate to={`/club/${user.id}/analytics`} replace />;
   if (loading) return <AnalyticsSkeleton />;
+
+  const bestSeller = computed.items[0] ?? null;
+  const slowest = computed.items.length > 1 ? computed.items[computed.items.length - 1] : null;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10">
@@ -231,28 +337,40 @@ export default function ClubAnalytics() {
           ))}
         </div>
       </div>
+      <p className="mt-1 text-sm text-ink-muted">
+        Money figures count verified payments only, over the last {range} days.
+      </p>
 
       {listings.length === 0 ? (
         <div className="mt-8">
           <EmptyState
             icon={<BarChart3 className="size-6" aria-hidden="true" />}
             title="No data yet"
-            body="Post your first drop and analytics start collecting: views, Venmo clicks, reservations, and ratings."
+            body="Post your first drop and analytics start collecting: revenue, orders, ratings, and more."
           />
         </div>
       ) : (
         <>
           <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3">
-            <StatCard label="Views" value={String(computed.views)} sub={`last ${range} days`} />
             <StatCard
-              label="Venmo CTR"
-              value={`${computed.ctr.toFixed(1)}%`}
-              sub={`${computed.clicks} clicks / ${computed.views} views`}
+              label="Revenue"
+              value={formatPrice(computed.totalRevenue)}
+              sub={
+                computed.groupRevenue > 0
+                  ? `incl. ${formatPrice(computed.groupRevenue)} from splits`
+                  : "from verified payments"
+              }
+            />
+            <StatCard label="Orders" value={String(computed.orderCount)} sub={`last ${range} days`} />
+            <StatCard
+              label="Avg order value"
+              value={computed.orderCount > 0 ? formatPrice(computed.avgOrderValue) : "n/a"}
+              sub="per verified order"
             />
             <StatCard
-              label="Reservation rate"
-              value={computed.reservationRate === null ? "n/a" : `${computed.reservationRate.toFixed(0)}%`}
-              sub={computed.reservationRate === null ? "no pickup slots yet" : "of slot capacity reserved"}
+              label="Unique buyers"
+              value={String(computed.uniqueBuyers)}
+              sub={`${computed.totalViews} views`}
             />
             <StatCard
               label="Avg rating"
@@ -268,45 +386,110 @@ export default function ClubAnalytics() {
                   : `avg response ${computed.avgResponseHours < 1 ? "under an hour" : `${computed.avgResponseHours.toFixed(0)}h`}`
               }
             />
-            <StatCard
-              label="Active drops"
-              value={String(listings.filter((listing) => listing.active).length)}
-              sub={`${listings.length} all time`}
-            />
           </div>
 
           <section className="mt-6 rounded-2xl border border-border bg-surface-raised p-4">
-            <h2 className="text-base font-bold">Views and Venmo clicks</h2>
+            <h2 className="text-base font-bold">Revenue over time</h2>
             <div className="mt-3">
-              <TrendLineChart data={computed.trend} />
+              <RevenueLineChart data={computed.trend} />
             </div>
           </section>
 
+          <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-bold">Items sold</h2>
+              {bestSeller && (
+                <p className="text-xs text-ink-muted">
+                  Best seller: <span className="font-semibold text-ink">{bestSeller.name}</span>
+                  {slowest && slowest.name !== bestSeller.name && (
+                    <>
+                      {" · "}slowest: <span className="font-semibold text-ink">{slowest.name}</span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+            {computed.items.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-muted">No verified item sales yet in this window.</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[420px] text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
+                      <th className="pb-2 font-semibold">Item</th>
+                      <th className="pb-2 text-right font-semibold">Units</th>
+                      <th className="pb-2 text-right font-semibold">Revenue</th>
+                      <th className="pb-2 text-right font-semibold">Boxes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {computed.items.map((item) => (
+                      <tr key={item.name}>
+                        <td className="py-2 pr-2 font-semibold">{item.name}</td>
+                        <td className="py-2 text-right font-mono">{item.units}</td>
+                        <td className="py-2 text-right font-mono font-bold">{formatPrice(item.revenue)}</td>
+                        <td className="py-2 text-right font-mono text-ink-muted">
+                          {item.box > 1 ? (item.units / item.box).toFixed(1) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="mt-2 text-xs text-ink-muted">
+                  Boxes = units sold ÷ box size, shown where an item has a box quantity.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {computed.leaderboard.length > 0 && (
+            <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+              <h2 className="text-base font-bold">Recommender leaderboard</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Revenue from orders that credited each member. Who raised the most money.
+              </p>
+              <div className="mt-3">
+                <RankBarChart data={computed.leaderboard} money />
+              </div>
+            </section>
+          )}
+
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-border bg-surface-raised p-4">
-              <h2 className="text-base font-bold">Peak interest times</h2>
+              <h2 className="text-base font-bold">Peak order times</h2>
               <div className="mt-3">
                 <PeakHeatmap matrix={computed.heatmap} />
               </div>
             </section>
             <section className="rounded-2xl border border-border bg-surface-raised p-4">
-              <h2 className="text-base font-bold">Dietary tags across your items</h2>
-              {computed.dietary.length === 0 ? (
-                <p className="mt-3 text-sm text-ink-muted">
-                  No dietary tags on your items yet. Tag items when creating a listing; students filter by them.
-                </p>
+              <h2 className="text-base font-bold">Revenue by item</h2>
+              {computed.itemRevenueChart.length === 0 ? (
+                <p className="mt-3 text-sm text-ink-muted">No sales yet to chart.</p>
               ) : (
                 <div className="mt-3">
-                  <TagBarChart data={computed.dietary} />
+                  <RankBarChart data={computed.itemRevenueChart} money />
                 </div>
               )}
             </section>
           </div>
 
           <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+            <h2 className="text-base font-bold">Dietary tags across your items</h2>
+            {computed.dietary.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-muted">
+                No dietary tags on your items yet. Tag items when creating a listing; students filter by them.
+              </p>
+            ) : (
+              <div className="mt-3">
+                <TagBarChart data={computed.dietary} />
+              </div>
+            )}
+          </section>
+
+          <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
             <h2 className="text-base font-bold">Per listing</h2>
             <div className="mt-3 space-y-2">
-              {computed.perListing.map(({ listing, views, clicks }) => (
+              {computed.perListing.map(({ listing, revenue, orders, views }) => (
                 <div
                   key={listing.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface px-3 py-2.5"
@@ -317,13 +500,13 @@ export default function ClubAnalytics() {
                   </div>
                   <div className="flex items-center gap-4 text-xs text-ink-muted">
                     <span>
-                      <span className="font-mono font-bold text-ink">{views}</span> views
+                      <span className="font-mono font-bold text-ink">{formatPrice(revenue)}</span> revenue
                     </span>
                     <span>
-                      <span className="font-mono font-bold text-ink">
-                        {views > 0 ? `${((clicks / views) * 100).toFixed(0)}%` : "0%"}
-                      </span>{" "}
-                      CTR
+                      <span className="font-mono font-bold text-ink">{orders}</span> orders
+                    </span>
+                    <span>
+                      <span className="font-mono font-bold text-ink">{views}</span> views
                     </span>
                     {listing.review_count > 0 ? (
                       <span className="flex items-center gap-1">

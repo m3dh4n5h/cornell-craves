@@ -176,7 +176,7 @@ export default function Register() {
             type="tel"
             value={zelle}
             onChange={(e) => setZelle(e.target.value)}
-            placeholder="(607) 254-4636"
+            placeholder="phone number"
             autoComplete="tel"
           />
         </div>
