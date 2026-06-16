@@ -109,6 +109,7 @@ export type Listing = {
   cause_percent: number | null;
   draft: boolean;
   auto_post_on_brand: boolean;
+  brand_approved: boolean;
   avg_rating: number;
   review_count: number;
   expires_at: string;
@@ -451,6 +452,7 @@ type ListingInsert = {
   cause_percent?: number | null;
   draft?: boolean;
   auto_post_on_brand?: boolean;
+  brand_approved?: boolean;
   avg_rating?: number;
   review_count?: number;
   expires_at: string;

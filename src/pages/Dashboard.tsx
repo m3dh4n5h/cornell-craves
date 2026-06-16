@@ -218,6 +218,10 @@ function spotsError(spots: SpotDraft[]): string | undefined {
     ) {
       return "Each spot's availability must end after it starts.";
     }
+    // Multi-day windows must spell out the hours per day.
+    if (spotDraftMultiDay(spot) && !spot.hoursNote.trim()) {
+      return "Add the per-day hours for any spot whose window spans multiple days.";
+    }
   }
   return undefined;
 }
@@ -1239,7 +1243,7 @@ export default function Dashboard() {
                 key={listing.id}
                 listing={listing}
                 busy={busyId === listing.id}
-                canPost={listing.draft && brandApproved(listing.brand)}
+                canPost={listing.draft && (listing.brand_approved || brandApproved(listing.brand))}
                 onEdit={() => setFormMode(listing.id)}
                 onToggleActive={() => void toggleActive(listing)}
                 onPost={() => void publishDraft(listing)}

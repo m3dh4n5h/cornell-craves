@@ -19,11 +19,12 @@ export function spotSpansMultipleDays(spot: SpotAvailability): boolean {
 }
 
 /**
- * Text describing when a spot's pickup is available: the per-day hours note for
- * a multi-day window, otherwise the timing range (build spec 5 follow-up).
+ * Text describing when a spot's pickup is available. A multi-day window shows
+ * ONLY the club's per-day hours note (never the raw datetime range); a
+ * single-day window shows its timing.
  */
 export function spotHoursText(spot: SpotAvailability): string {
-  if (spotSpansMultipleDays(spot) && spot.hours_note?.trim()) return spot.hours_note.trim();
+  if (spotSpansMultipleDays(spot)) return spot.hours_note?.trim() ?? "";
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString("en-US", {
       month: "short",

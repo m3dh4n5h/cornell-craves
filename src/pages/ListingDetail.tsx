@@ -21,7 +21,7 @@ import { useClub } from "@/hooks/useClub";
 import { trackListingView } from "@/lib/analytics";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
-import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT } from "@/lib/pickup";
+import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT, spotHoursText } from "@/lib/pickup";
 import { formatPrice } from "@/lib/format";
 import { VenmoButton } from "@/components/VenmoButton";
 import { AllergenIcon } from "@/components/AllergenIcon";
@@ -34,24 +34,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ListingPickupSpotWithLocation, ListingWithClub } from "@/types/database";
-
-/** "Available May 3, 5 PM – May 3, 8 PM" style window for a pickup spot. */
-function formatSpotWindow(spot: ListingPickupSpotWithLocation): string {
-  const fmt = (iso: string) =>
-    new Date(iso).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  if (spot.available_start && spot.available_end) {
-    return `Available ${fmt(spot.available_start)} – ${fmt(spot.available_end)}`;
-  }
-  if (spot.available_end) return `Available until ${fmt(spot.available_end)}`;
-  if (spot.available_start) return `Available from ${fmt(spot.available_start)}`;
-  return "";
-}
+import type { ListingWithClub } from "@/types/database";
 
 const TABS = [
   { id: "items", label: "Items" },
@@ -354,8 +337,10 @@ export default function ListingDetail() {
                       {ORDER_TYPE_SHORT[spot.order_type]}
                     </Badge>
                   </Link>
-                  {(spot.available_start || spot.available_end) && (
-                    <span className="text-xs text-ink-muted">{formatSpotWindow(spot)}</span>
+                  {spotHoursText(spot) && (
+                    <span className="whitespace-pre-wrap text-xs text-ink-muted">
+                      {spotHoursText(spot)}
+                    </span>
                   )}
                 </div>
               ))}
