@@ -24,16 +24,36 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const { user, loading: authLoading, signOut } = useAuth();
   const { club, loading: clubLoading } = useClub();
-  const { profile, loading: profileLoading } = useProfile();
+  const { profile, loading: profileLoading, refetch } = useProfile();
 
   const [netid, setNetid] = useState("");
   const [venmo, setVenmo] = useState("");
   const [phone, setPhone] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  // First sign-up confirms the account type (build spec 5 #4).
+  // First sign-up confirms the account type (build spec 5 #4). Persist the
+  // choice per user so a remount or a brief profile lag can't re-show it (which
+  // caused an endless confirm -> form -> confirm loop).
+  const confirmKey = user ? `craves:type-confirmed:${user.id}` : "";
   const [confirmedStudent, setConfirmedStudent] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (confirmKey && sessionStorage.getItem(confirmKey)) setConfirmedStudent(true);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [confirmKey]);
+
+  const confirmStudent = () => {
+    setConfirmedStudent(true);
+    try {
+      if (confirmKey) sessionStorage.setItem(confirmKey, "1");
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   // The student's email is their Cornell Google account, never editable (#2).
   const accountEmail = (user?.email ?? "").toLowerCase();
@@ -86,11 +106,15 @@ export default function Onboarding() {
       venmo_id: venmo.trim().replace(/^@/, "") || null,
       phone: phone.trim() || null,
     });
-    setSubmitting(false);
     if (error) {
+      setSubmitting(false);
       toast.error(error.message);
       return;
     }
+    // Refresh the profile context BEFORE leaving so the onboarding gate sees the
+    // new NetID and doesn't bounce the user back into this flow (endless loop).
+    await refetch();
+    setSubmitting(false);
     navigate("/preferences");
   };
 
@@ -119,7 +143,7 @@ export default function Onboarding() {
             You're signed in as <span className="font-semibold">{accountEmail}</span>. Student
             accounts order food, split costs, and reserve pickups.
           </p>
-          <Button className="mt-6 w-full" size="lg" onClick={() => setConfirmedStudent(true)}>
+          <Button className="mt-6 w-full" size="lg" onClick={confirmStudent}>
             Yes, I'm a student
           </Button>
           <Button

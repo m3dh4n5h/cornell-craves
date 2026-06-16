@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
-import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ClubProvider, useClub } from "@/hooks/useClub";
@@ -18,7 +18,6 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Cravings = lazy(() => import("@/pages/Cravings"));
 const Admin = lazy(() => import("@/pages/Admin"));
 const MapPage = lazy(() => import("@/pages/MapPage"));
-const MyReservations = lazy(() => import("@/pages/MyReservations"));
 const ClubAnalytics = lazy(() => import("@/pages/ClubAnalytics"));
 const ClubTemplates = lazy(() => import("@/pages/ClubTemplates"));
 const ClubReservations = lazy(() => import("@/pages/ClubReservations"));
@@ -159,7 +158,8 @@ export default function App() {
               <Route path="/orders" element={<Screen><MyOrders /></Screen>} />
               <Route path="/orders/:id" element={<Screen><OrderDetail /></Screen>} />
               <Route path="/invite/:token" element={<Screen><InvitePage /></Screen>} />
-              <Route path="/reservations" element={<Screen><MyReservations /></Screen>} />
+              {/* Pickups are merged into Orders; keep the old path working. */}
+              <Route path="/reservations" element={<Navigate to="/orders" replace />} />
               <Route path="/club/:clubId/analytics" element={<Screen><ClubAnalytics /></Screen>} />
               <Route path="/club/:clubId/templates" element={<Screen><ClubTemplates /></Screen>} />
               <Route path="/club/:clubId/reservations-manager" element={<Screen><ClubReservations /></Screen>} />

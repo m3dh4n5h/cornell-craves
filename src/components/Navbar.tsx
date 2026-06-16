@@ -80,9 +80,6 @@ export function Navbar() {
               <NavLink to="/orders" className={navLinkClass}>
                 Orders
               </NavLink>
-              <NavLink to="/reservations" className={navLinkClass}>
-                Pickups
-              </NavLink>
               {isAdmin && (
                 <NavLink to="/admin" className={navLinkClass}>
                   Admin

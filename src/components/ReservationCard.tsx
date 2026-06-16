@@ -1,20 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CalendarHeart, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
-import { useProfile } from "@/hooks/useProfile";
 import { openVenmo } from "@/lib/venmo";
-import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { cn } from "@/lib/utils";
 import type { MyReservation } from "@/types/database";
 
-function formatSlot(reservation: MyReservation): string {
+export function formatSlot(reservation: MyReservation): string {
   const start = new Date(reservation.start_time);
   const end = new Date(reservation.end_time);
   const day = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -28,7 +24,7 @@ function canConfirm(reservation: MyReservation): boolean {
   return !reservation.confirmed && start > now && start <= now + 24 * 3_600_000;
 }
 
-function ReservationCard({
+export function ReservationCard({
   reservation,
   email,
   past,
@@ -175,106 +171,6 @@ function ReservationCard({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-export default function MyReservations() {
-  const { user, isGoogleUser, loading: authLoading } = useAuth();
-  const { profile, loading: profileLoading } = useProfile();
-  const [reservations, setReservations] = useState<MyReservation[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Reservations are looked up by the account's Cornell email.
-  const activeEmail = (profile?.cornell_email || user?.email || "").toLowerCase();
-
-  const load = useCallback(async (lookupEmail: string) => {
-    setLoading(true);
-    const { data, error } = await supabase.rpc("get_my_reservations", { p_email: lookupEmail });
-    if (error) {
-      toast.error(error.message);
-      setReservations([]);
-    } else {
-      setReservations((data as MyReservation[] | null) ?? []);
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (!authLoading && !profileLoading && activeEmail) void load(activeEmail);
-  }, [authLoading, profileLoading, activeEmail, load]);
-
-  // v4: pickups require a Google student account.
-  if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login?intent=student&next=/reservations" replace />;
-  }
-
-  const now = Date.now();
-  const upcoming = reservations.filter((r) => new Date(r.end_time).getTime() > now);
-  const past = reservations
-    .filter((r) => new Date(r.end_time).getTime() <= now)
-    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
-
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">My pickups</h1>
-        <p className="mt-1 text-sm text-ink-muted">{activeEmail}</p>
-      </div>
-
-      {authLoading || profileLoading || loading ? (
-        <div className="mt-8 space-y-3" aria-busy="true" aria-label="Loading reservations">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-2xl bg-border/40" />
-          ))}
-        </div>
-      ) : reservations.length === 0 ? (
-        <div className="mt-8">
-          <EmptyState
-            icon={<CalendarHeart className="size-6" aria-hidden="true" />}
-            title="No reservations yet"
-            body="Reserve a pickup slot from any listing's Pickup tab and it shows up here."
-          />
-        </div>
-      ) : (
-        <>
-          <section className="mt-8">
-            <h2 className="text-lg font-bold">Upcoming</h2>
-            {upcoming.length === 0 ? (
-              <p className="mt-2 text-sm text-ink-muted">Nothing scheduled. Go find a drop!</p>
-            ) : (
-              <div className="mt-3 space-y-3">
-                {upcoming.map((reservation) => (
-                  <ReservationCard
-                    key={reservation.id}
-                    reservation={reservation}
-                    email={activeEmail}
-                    past={false}
-                    onChanged={() => void load(activeEmail)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {past.length > 0 && (
-            <section className="mt-10">
-              <h2 className="text-lg font-bold">Past</h2>
-              <div className="mt-3 space-y-3">
-                {past.map((reservation) => (
-                  <ReservationCard
-                    key={reservation.id}
-                    reservation={reservation}
-                    email={activeEmail}
-                    past
-                    onChanged={() => void load(activeEmail)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </>
-      )}
     </div>
   );
 }

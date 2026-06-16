@@ -55,6 +55,9 @@ export type ListingPickupSpot = {
   listing_id: string;
   location_id: string;
   order_type: OrderType;
+  /** Window this spot's pickup is available; gates the map pin (build spec 5). */
+  available_start: string | null;
+  available_end: string | null;
   created_at: string;
 };
 
@@ -475,6 +478,8 @@ type ListingPickupSpotInsert = {
   listing_id: string;
   location_id: string;
   order_type?: OrderType;
+  available_start?: string | null;
+  available_end?: string | null;
   created_at?: string;
 };
 

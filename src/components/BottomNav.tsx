@@ -4,7 +4,6 @@ import {
   MapPinned,
   BellRing,
   ReceiptText,
-  Ticket,
   UserRound,
   LayoutDashboard,
   ShieldCheck,
@@ -22,7 +21,6 @@ const STUDENT_TABS: Tab[] = [
   { to: "/map", label: "Map", Icon: MapPinned },
   { to: "/cravings", label: "Cravings", Icon: BellRing },
   { to: "/orders", label: "Orders", Icon: ReceiptText },
-  { to: "/reservations", label: "Pickups", Icon: Ticket },
   { to: "/account/settings", label: "Account", Icon: UserRound },
 ];
 

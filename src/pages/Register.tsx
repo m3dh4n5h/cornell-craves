@@ -39,9 +39,28 @@ export default function Register() {
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  // First sign-up confirms the account type (build spec 5 #4).
+  // First sign-up confirms the account type (build spec 5 #4). Persist the
+  // choice per user so a remount can't re-show it and trap the user in a loop.
+  const confirmKey = user ? `craves:type-confirmed:${user.id}` : "";
   const [confirmedClub, setConfirmedClub] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (confirmKey && sessionStorage.getItem(confirmKey)) setConfirmedClub(true);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [confirmKey]);
+
+  const confirmClub = () => {
+    setConfirmedClub(true);
+    try {
+      if (confirmKey) sessionStorage.setItem(confirmKey, "1");
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   // Prefill the club name from the Google profile (build spec 5 #3).
   useEffect(() => {
@@ -192,7 +211,7 @@ export default function Register() {
             You're signed in as <span className="font-semibold">{user?.email}</span>. Club accounts
             run fundraisers, verify payments, and scan pickups.
           </p>
-          <Button className="mt-6 w-full" size="lg" onClick={() => setConfirmedClub(true)}>
+          <Button className="mt-6 w-full" size="lg" onClick={confirmClub}>
             Yes, I'm a club
           </Button>
           <Button

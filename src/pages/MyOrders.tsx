@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ReceiptText, Users } from "lucide-react";
+import { ReceiptText, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
+import { ReservationCard } from "@/components/ReservationCard";
 import { fetchMyOrders, orderQuantity, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
 import { formatPrice } from "@/lib/format";
@@ -19,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { GroupDetails, MyOrder } from "@/types/database";
+import type { GroupDetails, MyOrder, MyReservation } from "@/types/database";
 
 function OrderCard({ order, onCancelled }: { order: MyOrder; onCancelled: () => void }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -249,20 +251,27 @@ function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
 export default function MyOrders() {
   const navigate = useNavigate();
   const { user, isGoogleUser, loading: authLoading } = useAuth();
+  const { profile } = useProfile();
   const [orders, setOrders] = useState<MyOrder[]>([]);
   const [groups, setGroups] = useState<GroupDetails[]>([]);
   const [invites, setInvites] = useState<(GroupDetails & { invite_token: string })[]>([]);
+  const [reservations, setReservations] = useState<MyReservation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const userId = user?.id ?? null;
+  // Pickup reservations are looked up by the account's Cornell email.
+  const reservationEmail = (profile?.cornell_email || user?.email || "").toLowerCase();
 
   const load = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
-    const [ordersResult, groupsResult, invitesResult] = await Promise.all([
+    const [ordersResult, groupsResult, invitesResult, reservationsResult] = await Promise.all([
       fetchMyOrders({ userId }),
       supabase.rpc("get_my_groups"),
       supabase.rpc("get_my_group_invites"),
+      reservationEmail
+        ? supabase.rpc("get_my_reservations", { p_email: reservationEmail })
+        : Promise.resolve({ data: [] }),
     ]);
     if (ordersResult.error) toast.error(ordersResult.error);
     setOrders(ordersResult.orders);
@@ -272,8 +281,9 @@ export default function MyOrders() {
         Boolean,
       ),
     );
+    setReservations((reservationsResult.data as MyReservation[] | null) ?? []);
     setLoading(false);
-  }, [userId]);
+  }, [userId, reservationEmail]);
 
   useEffect(() => {
     if (userId) void load();
@@ -297,11 +307,21 @@ export default function MyOrders() {
     );
   }
 
-  const isEmpty = orders.length === 0 && groups.length === 0 && invites.length === 0;
+  const now = Date.now();
+  const upcomingReservations = reservations.filter((r) => new Date(r.end_time).getTime() > now);
+  const pastReservations = reservations
+    .filter((r) => new Date(r.end_time).getTime() <= now)
+    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+
+  const isEmpty =
+    orders.length === 0 &&
+    groups.length === 0 &&
+    invites.length === 0 &&
+    reservations.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <h1 className="text-2xl font-extrabold tracking-tight">My orders</h1>
+      <h1 className="text-2xl font-extrabold tracking-tight">Orders &amp; pickups</h1>
       <p className="mt-1 text-sm text-ink-muted">{user?.email}</p>
 
       {isEmpty ? (
@@ -353,6 +373,44 @@ export default function MyOrders() {
                   <OrderCard key={order.id} order={order} onCancelled={() => void load()} />
                 ))}
               </div>
+            </section>
+          )}
+
+          {reservations.length > 0 && (
+            <section className="mt-8">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <Ticket className="size-5 text-primary-dark" aria-hidden="true" />
+                Pickup reservations
+              </h2>
+              {upcomingReservations.length > 0 && (
+                <div className="mt-3 space-y-3">
+                  {upcomingReservations.map((reservation) => (
+                    <ReservationCard
+                      key={reservation.id}
+                      reservation={reservation}
+                      email={reservationEmail}
+                      past={false}
+                      onChanged={() => void load()}
+                    />
+                  ))}
+                </div>
+              )}
+              {pastReservations.length > 0 && (
+                <>
+                  <h3 className="mt-5 text-sm font-semibold text-ink-muted">Past</h3>
+                  <div className="mt-2 space-y-3">
+                    {pastReservations.map((reservation) => (
+                      <ReservationCard
+                        key={reservation.id}
+                        reservation={reservation}
+                        email={reservationEmail}
+                        past
+                        onChanged={() => void load()}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </section>
           )}
         </>

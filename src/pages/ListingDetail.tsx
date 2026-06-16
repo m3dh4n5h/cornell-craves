@@ -34,7 +34,24 @@ import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ListingWithClub } from "@/types/database";
+import type { ListingPickupSpotWithLocation, ListingWithClub } from "@/types/database";
+
+/** "Available May 3, 5 PM – May 3, 8 PM" style window for a pickup spot. */
+function formatSpotWindow(spot: ListingPickupSpotWithLocation): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  if (spot.available_start && spot.available_end) {
+    return `Available ${fmt(spot.available_start)} – ${fmt(spot.available_end)}`;
+  }
+  if (spot.available_end) return `Available until ${fmt(spot.available_end)}`;
+  if (spot.available_start) return `Available from ${fmt(spot.available_start)}`;
+  return "";
+}
 
 const TABS = [
   { id: "items", label: "Items" },
@@ -324,19 +341,23 @@ export default function ListingDetail() {
           )}
 
           {pickupSpots.length > 0 ? (
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-col gap-2">
               {pickupSpots.map((spot) => (
-                <Link
-                  key={spot.id}
-                  to="/map"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
-                >
-                  <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
-                  {spot.campus_locations?.name ?? "Pickup spot"}
-                  <Badge variant={ORDER_TYPE_BADGE[spot.order_type]}>
-                    {ORDER_TYPE_SHORT[spot.order_type]}
-                  </Badge>
-                </Link>
+                <div key={spot.id} className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to="/map"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
+                  >
+                    <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
+                    {spot.campus_locations?.name ?? "Pickup spot"}
+                    <Badge variant={ORDER_TYPE_BADGE[spot.order_type]}>
+                      {ORDER_TYPE_SHORT[spot.order_type]}
+                    </Badge>
+                  </Link>
+                  {(spot.available_start || spot.available_end) && (
+                    <span className="text-xs text-ink-muted">{formatSpotWindow(spot)}</span>
+                  )}
+                </div>
               ))}
             </div>
           ) : (

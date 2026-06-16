@@ -142,8 +142,14 @@ export default function MapPage() {
         }
         places = [...byLoc.values()];
       } else if (spots.length > 0) {
+        // A spot's pin shows only within its availability window, if one is set.
+        const spotLive = (spot: (typeof spots)[number]) => {
+          if (spot.available_start && new Date(spot.available_start).getTime() > now) return false;
+          if (spot.available_end && new Date(spot.available_end).getTime() < now) return false;
+          return true;
+        };
         places = spots.flatMap((spot) =>
-          spot.campus_locations
+          spot.campus_locations && spotLive(spot)
             ? [
                 {
                   name: spot.campus_locations.name,

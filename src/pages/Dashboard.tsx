@@ -190,15 +190,27 @@ interface SpotDraft {
   id?: string;
   locationId: string;
   orderType: OrderType;
+  availableStart: string;
+  availableEnd: string;
 }
 
 type PublishMode = "publish" | "draft" | "autopost";
 
-/** Spots are optional, but no two may point at the same campus location. */
+/** Spots are optional, but no two may point at the same campus location, and a
+ * spot's availability window must end after it starts. */
 function spotsError(spots: SpotDraft[]): string | undefined {
   const picked = spots.map((spot) => spot.locationId).filter(Boolean);
   if (new Set(picked).size !== picked.length) {
     return "Each pickup spot must be a different campus location.";
+  }
+  for (const spot of spots) {
+    if (
+      spot.availableStart &&
+      spot.availableEnd &&
+      new Date(spot.availableEnd).getTime() <= new Date(spot.availableStart).getTime()
+    ) {
+      return "Each spot's availability must end after it starts.";
+    }
   }
   return undefined;
 }
@@ -229,7 +241,10 @@ function SpotsEditor({
   };
 
   const addSpot = () => {
-    onChange([...spots, { locationId: "", orderType: "preorder" }]);
+    onChange([
+      ...spots,
+      { locationId: "", orderType: "preorder", availableStart: "", availableEnd: "" },
+    ]);
   };
 
   return (
@@ -237,57 +252,89 @@ function SpotsEditor({
       {spots.length === 0 && (
         <p className="text-xs text-ink-muted">
           Optional. Add one or more campus spots so this drop shows on the map. Tag each as
-          pre-order or same-day.
+          pre-order or same-day, and set when pickup is available there.
         </p>
       )}
       {spots.map((spot, index) => (
         <div
           key={spot.id ?? `new-${index}`}
-          className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 p-2.5"
+          className="rounded-xl border border-border/70 p-2.5"
         >
-          <div className="min-w-0 flex-1 basis-full sm:basis-44">
-            <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
-              Campus spot
-            </Label>
-            <select
-              id={`spot-location-${index}`}
-              value={spot.locationId}
-              onChange={(e) => update(index, { locationId: e.target.value })}
-              className={SELECT_CLASS}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-0 flex-1 basis-full sm:basis-44">
+              <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
+                Campus spot
+              </Label>
+              <select
+                id={`spot-location-${index}`}
+                value={spot.locationId}
+                onChange={(e) => update(index, { locationId: e.target.value })}
+                className={SELECT_CLASS}
+              >
+                <option value="">Pick a location</option>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-0 flex-1 basis-full sm:basis-36">
+              <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
+                Ordering
+              </Label>
+              <select
+                id={`spot-type-${index}`}
+                value={spot.orderType}
+                onChange={(e) => update(index, { orderType: e.target.value as OrderType })}
+                className={SELECT_CLASS}
+              >
+                <option value="preorder">Pre-order only</option>
+                <option value="same_day">Same-day pickup</option>
+                <option value="both">Pre-order &amp; same-day</option>
+              </select>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(spots.filter((_, i) => i !== index))}
+              aria-label={`Remove pickup spot ${index + 1}`}
+              className="mb-0.5 px-2.5 text-ink-muted"
             >
-              <option value="">Pick a location</option>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.name}
-                </option>
-              ))}
-            </select>
+              <X className="size-4" aria-hidden="true" />
+            </Button>
           </div>
-          <div className="min-w-0 flex-1 basis-full sm:basis-36">
-            <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
-              Ordering
-            </Label>
-            <select
-              id={`spot-type-${index}`}
-              value={spot.orderType}
-              onChange={(e) => update(index, { orderType: e.target.value as OrderType })}
-              className={SELECT_CLASS}
-            >
-              <option value="preorder">Pre-order only</option>
-              <option value="same_day">Same-day pickup</option>
-              <option value="both">Pre-order &amp; same-day</option>
-            </select>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="min-w-0">
+              <Label htmlFor={`spot-from-${index}`} className="mb-1 text-xs">
+                Available from
+              </Label>
+              <Input
+                id={`spot-from-${index}`}
+                type="datetime-local"
+                value={spot.availableStart}
+                onChange={(e) => update(index, { availableStart: e.target.value })}
+                className="h-10 w-full"
+              />
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor={`spot-until-${index}`} className="mb-1 text-xs">
+                Available until
+              </Label>
+              <Input
+                id={`spot-until-${index}`}
+                type="datetime-local"
+                value={spot.availableEnd}
+                onChange={(e) => update(index, { availableEnd: e.target.value })}
+                className="h-10 w-full"
+              />
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange(spots.filter((_, i) => i !== index))}
-            aria-label={`Remove pickup spot ${index + 1}`}
-            className="mb-0.5 px-2.5 text-ink-muted"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </Button>
+          <p className="mt-1 text-[11px] text-ink-muted">
+            The map shows this spot's pin only between these times. Leave blank to show it the
+            whole drop.
+          </p>
         </div>
       ))}
       <Button type="button" variant="secondary" size="sm" onClick={addSpot} disabled={spots.length >= 8}>
@@ -378,7 +425,10 @@ function ListingForm({
     }
     const location = data as CampusLocation;
     onLocationAdded(location);
-    setSpots((previous) => [...previous, { locationId: location.id, orderType: "preorder" }]);
+    setSpots((previous) => [
+      ...previous,
+      { locationId: location.id, orderType: "preorder", availableStart: "", availableEnd: "" },
+    ]);
     setCustomName("");
     setCustomAddress("");
     toast.success(`Added "${location.name}". It's selected as a pickup spot below.`);
@@ -425,7 +475,15 @@ function ListingForm({
       .then(({ data }) => {
         if (cancelled || !data) return;
         setOriginalSpots(data);
-        setSpots(data.map((spot) => ({ id: spot.id, locationId: spot.location_id, orderType: spot.order_type })));
+        setSpots(
+          data.map((spot) => ({
+            id: spot.id,
+            locationId: spot.location_id,
+            orderType: spot.order_type,
+            availableStart: spot.available_start ? toDatetimeLocal(new Date(spot.available_start)) : "",
+            availableEnd: spot.available_end ? toDatetimeLocal(new Date(spot.available_end)) : "",
+          })),
+        );
       });
     return () => {
       cancelled = true;
@@ -471,6 +529,8 @@ function ListingForm({
         listing_id: listingId,
         location_id: draft.locationId,
         order_type: draft.orderType,
+        available_start: draft.availableStart ? new Date(draft.availableStart).toISOString() : null,
+        available_end: draft.availableEnd ? new Date(draft.availableEnd).toISOString() : null,
       };
       const { error } = draft.id
         ? await supabase.from("listing_pickup_spots").update(payload).eq("id", draft.id)
@@ -849,13 +909,17 @@ function ListingForm({
 function ListingRow({
   listing,
   busy,
+  canPost,
   onEdit,
   onToggleActive,
+  onPost,
 }: {
   listing: ListingWithClub;
   busy: boolean;
+  canPost: boolean;
   onEdit: () => void;
   onToggleActive: () => void;
+  onPost: () => void;
 }) {
   const timeLeft = useCountdown(listing.expires_at);
   const held = listing.draft || listing.auto_post_on_brand;
@@ -883,6 +947,11 @@ function ListingRow({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {canPost && (
+          <Button size="sm" loading={busy} onClick={onPost}>
+            Post now
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={onEdit}>
           Edit
         </Button>
@@ -918,6 +987,7 @@ export default function Dashboard() {
     refetch,
   } = useListings({ clubId: user?.id, enabled: Boolean(user) });
   const reduceMotion = useReducedMotion();
+  const brandOptions = useBrandOptions();
 
   // "create" opens an empty form; a listing id opens that listing for editing.
   const [formMode, setFormMode] = useState<"closed" | "create" | string>("closed");
@@ -989,6 +1059,25 @@ export default function Dashboard() {
     formMode !== "closed" && formMode !== "create"
       ? (listings.find((listing) => listing.id === formMode) ?? null)
       : null;
+
+  const brandApproved = (brandName: string) =>
+    brandOptions.some((option) => option.toLowerCase() === brandName.trim().toLowerCase());
+
+  // Publish a draft whose brand has since been approved (build spec 5 follow-up).
+  const publishDraft = async (listing: ListingWithClub) => {
+    setBusyId(listing.id);
+    const { error } = await supabase
+      .from("listings")
+      .update({ active: true, draft: false, auto_post_on_brand: false })
+      .eq("id", listing.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Draft published. It's live on the feed.");
+      await refetch();
+    }
+    setBusyId(null);
+  };
 
   const toggleActive = async (listing: ListingWithClub) => {
     setBusyId(listing.id);
@@ -1097,8 +1186,10 @@ export default function Dashboard() {
                 key={listing.id}
                 listing={listing}
                 busy={busyId === listing.id}
+                canPost={listing.draft && brandApproved(listing.brand)}
                 onEdit={() => setFormMode(listing.id)}
                 onToggleActive={() => void toggleActive(listing)}
+                onPost={() => void publishDraft(listing)}
               />
             ))}
           </div>
