@@ -58,6 +58,8 @@ export type ListingPickupSpot = {
   /** Window this spot's pickup is available; gates the map pin (build spec 5). */
   available_start: string | null;
   available_end: string | null;
+  /** Per-day hours for multi-day windows, shown in the map popup. */
+  hours_note: string | null;
   created_at: string;
 };
 
@@ -195,6 +197,15 @@ export type QAEntry = {
   club_response: string | null;
   response_date: string | null;
   helpful_count: number;
+  answer_helpful_count: number;
+  created_at: string;
+};
+
+export type QAHelpfulVote = {
+  id: string;
+  qa_id: string;
+  user_id: string;
+  target: "question" | "answer";
   created_at: string;
 };
 
@@ -480,6 +491,7 @@ type ListingPickupSpotInsert = {
   order_type?: OrderType;
   available_start?: string | null;
   available_end?: string | null;
+  hours_note?: string | null;
   created_at?: string;
 };
 
@@ -738,6 +750,28 @@ export type Database = {
           },
         ];
       };
+      qa_helpful_votes: {
+        Row: QAHelpfulVote;
+        Insert: {
+          id?: string;
+          qa_id: string;
+          user_id: string;
+          target: "question" | "answer";
+          created_at?: string;
+        };
+        Update: Partial<{
+          target: "question" | "answer";
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "qa_helpful_votes_qa_id_fkey";
+            columns: ["qa_id"];
+            isOneToOne: false;
+            referencedRelation: "qa";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       recurring_templates: {
         Row: RecurringTemplate;
         Insert: RecurringTemplateInsert;
@@ -919,6 +953,10 @@ export type Database = {
       vote_qa_helpful: {
         Args: { p_qa_id: string };
         Returns: undefined;
+      };
+      toggle_qa_helpful: {
+        Args: { p_qa_id: string; p_target: "question" | "answer" };
+        Returns: { voted: boolean; count: number };
       };
       create_order: {
         Args: {

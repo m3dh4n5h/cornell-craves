@@ -3,46 +3,101 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Heart, MessageCircleQuestion } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import { sha256Hex } from "@/lib/hash";
-import { getSavedEmail, hasVoted, markVoted, setSavedEmail } from "@/lib/local";
 import { EmptyState } from "@/components/EmptyState";
+import { GoogleButton } from "@/components/GoogleButton";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { QAEntry } from "@/types/database";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+type HelpfulTarget = "question" | "answer";
+
+function HelpfulButton({
+  qaId,
+  target,
+  initialVoted,
+  initialCount,
+  canVote,
+}: {
+  qaId: string;
+  target: HelpfulTarget;
+  initialVoted: boolean;
+  initialCount: number;
+  canVote: boolean;
+}) {
+  const [voted, setVoted] = useState(initialVoted);
+  const [count, setCount] = useState(initialCount);
+  const [busy, setBusy] = useState(false);
+
+  // Re-sync if the parent reloads with fresh server state.
+  useEffect(() => setVoted(initialVoted), [initialVoted]);
+  useEffect(() => setCount(initialCount), [initialCount]);
+
+  const toggle = async () => {
+    if (!canVote) {
+      toast.error("Sign in to mark helpful");
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    const { data, error } = await supabase.rpc("toggle_qa_helpful", {
+      p_qa_id: qaId,
+      p_target: target,
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const result = data as unknown as { voted: boolean; count: number };
+    setVoted(result.voted);
+    setCount(result.count);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void toggle()}
+      aria-pressed={voted}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
+        voted
+          ? "border-accent/40 bg-accent/10 text-accent"
+          : "border-border text-ink-muted hover-fine:border-accent/40 hover-fine:text-accent",
+      )}
+    >
+      <Heart className="size-3.5" fill={voted ? "currentColor" : "none"} aria-hidden="true" />
+      Helpful{count > 0 ? ` (${count})` : ""}
+    </button>
+  );
 }
 
 function QAItem({
   entry,
   canRespond,
+  signedIn,
+  votedQuestion,
+  votedAnswer,
   onResponded,
 }: {
   entry: QAEntry;
   canRespond: boolean;
+  signedIn: boolean;
+  votedQuestion: boolean;
+  votedAnswer: boolean;
   onResponded: () => void;
 }) {
   const reduceMotion = useReducedMotion();
-  const [voted, setVoted] = useState(() => hasVoted("qa", entry.id));
-  const [helpfulCount, setHelpfulCount] = useState(entry.helpful_count);
   const [responding, setResponding] = useState(false);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const voteHelpful = async () => {
-    if (voted) return;
-    setVoted(true);
-    setHelpfulCount((count) => count + 1);
-    markVoted("qa", entry.id);
-    const { error } = await supabase.rpc("vote_qa_helpful", { p_qa_id: entry.id });
-    if (error) toast.error("Could not record your vote");
-  };
 
   const submitResponse = async (event: FormEvent) => {
     event.preventDefault();
@@ -73,7 +128,17 @@ function QAItem({
         <span className="font-display text-sm font-bold">Student</span>
         <span className="text-xs text-ink-muted">{formatDate(entry.created_at)}</span>
       </div>
-      <p className="mt-1.5 text-sm">{entry.question}</p>
+      <p className="mt-1.5 whitespace-pre-wrap break-words text-sm">{entry.question}</p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <HelpfulButton
+          qaId={entry.id}
+          target="question"
+          initialVoted={votedQuestion}
+          initialCount={entry.helpful_count}
+          canVote={signedIn}
+        />
+      </div>
 
       {entry.club_response ? (
         <motion.div
@@ -83,10 +148,21 @@ function QAItem({
           className="ml-3 mt-3 rounded-xl bg-tag-blue/50 p-3"
         >
           <p className="text-xs font-bold">Club answer</p>
-          <p className="mt-1 text-sm text-ink-muted">{entry.club_response}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-muted">
+            {entry.club_response}
+          </p>
           {entry.response_date && (
             <p className="mt-1 text-xs text-ink-muted/80">{formatDate(entry.response_date)}</p>
           )}
+          <div className="mt-2">
+            <HelpfulButton
+              qaId={entry.id}
+              target="answer"
+              initialVoted={votedAnswer}
+              initialCount={entry.answer_helpful_count}
+              canVote={signedIn}
+            />
+          </div>
         </motion.div>
       ) : canRespond ? (
         <div className="mt-3">
@@ -117,22 +193,6 @@ function QAItem({
       ) : (
         <p className="mt-3 text-xs text-ink-muted">Waiting on the club to answer.</p>
       )}
-
-      <button
-        type="button"
-        onClick={() => void voteHelpful()}
-        disabled={voted}
-        aria-pressed={voted}
-        className={cn(
-          "mt-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
-          voted
-            ? "border-accent/40 bg-accent/10 text-accent"
-            : "border-border text-ink-muted hover-fine:border-accent/40 hover-fine:text-accent",
-        )}
-      >
-        <Heart className="size-3.5" fill={voted ? "currentColor" : "none"} aria-hidden="true" />
-        Helpful{helpfulCount > 0 ? ` (${helpfulCount})` : ""}
-      </button>
     </motion.li>
   );
 }
@@ -146,11 +206,13 @@ interface QAThreadProps {
 }
 
 export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
+  const { user } = useAuth();
+  const signedIn = Boolean(user);
   const [entries, setEntries] = useState<QAEntry[]>([]);
+  const [votes, setVotes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<"newest" | "helpful">("newest");
   const [question, setQuestion] = useState("");
-  const [email, setEmail] = useState(getSavedEmail);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -162,25 +224,41 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Could not load questions");
+      setLoading(false);
+      return;
+    }
+    const rows = data ?? [];
+    setEntries(rows);
+
+    // The caller's own helpful votes drive the toggled state (RLS limits to self).
+    if (user && rows.length > 0) {
+      const { data: voteRows } = await supabase
+        .from("qa_helpful_votes")
+        .select("qa_id, target")
+        .in(
+          "qa_id",
+          rows.map((row) => row.id),
+        );
+      setVotes(new Set((voteRows ?? []).map((vote) => `${vote.qa_id}:${vote.target}`)));
     } else {
-      setEntries(data ?? []);
+      setVotes(new Set());
     }
     setLoading(false);
-  }, [listingId]);
+  }, [listingId, user]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
 
-  const questionError = question.trim().length >= 5 ? undefined : "Ask a question first (5 characters minimum).";
-  const emailError = EMAIL_PATTERN.test(email.trim()) ? undefined : "Enter a valid email address.";
+  const questionError =
+    question.trim().length >= 5 ? undefined : "Ask a question first (5 characters minimum).";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setShowErrors(true);
-    if (questionError || emailError) return;
+    if (questionError || !user) return;
     setSubmitting(true);
-    const hashed = await sha256Hex(email);
+    const hashed = await sha256Hex(user.email ?? user.id);
     const { error } = await supabase
       .from("qa")
       .insert({ listing_id: listingId, question_email: hashed, question: question.trim() });
@@ -189,7 +267,6 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
       toast.error(error.message);
       return;
     }
-    setSavedEmail(email);
     setQuestion("");
     setShowErrors(false);
     toast.success("Question posted anonymously");
@@ -205,51 +282,49 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
   return (
     <div>
       {/* Clubs answer questions but cannot ask them (Batch 2 #8). */}
-      {!isClub && (
-      <form onSubmit={submit} noValidate className="rounded-2xl border border-border bg-surface-raised p-4">
-        <h3 className="text-base font-bold">Ask the club</h3>
-        <p className="mt-1 text-xs text-ink-muted">
-          Questions are anonymous. Your email is hashed and never shown; you appear as
-          "Student".
-        </p>
-        <div className="mt-3">
-          <Label htmlFor={`qa-question-${listingId}`}>Question</Label>
-          <Textarea
-            id={`qa-question-${listingId}`}
-            value={question}
-            invalid={showErrors && Boolean(questionError)}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Is the food made fresh the same day?"
-            maxLength={500}
-          />
-          {showErrors && questionError && (
-            <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-              {questionError}
+      {!isClub &&
+        (signedIn ? (
+          <form
+            onSubmit={submit}
+            noValidate
+            className="rounded-2xl border border-border bg-surface-raised p-4"
+          >
+            <h3 className="text-base font-bold">Ask the club</h3>
+            <p className="mt-1 text-xs text-ink-muted">
+              Questions are anonymous. Your identity is hashed and never shown; you appear as
+              "Student".
             </p>
-          )}
-        </div>
-        <div className="mt-3">
-          <Label htmlFor={`qa-email-${listingId}`}>Email</Label>
-          <Input
-            id={`qa-email-${listingId}`}
-            type="email"
-            value={email}
-            invalid={showErrors && Boolean(emailError)}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="netid@cornell.edu"
-            autoComplete="email"
-          />
-          {showErrors && emailError && (
-            <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
-              {emailError}
+            <div className="mt-3">
+              <Label htmlFor={`qa-question-${listingId}`}>Question</Label>
+              <Textarea
+                id={`qa-question-${listingId}`}
+                value={question}
+                invalid={showErrors && Boolean(questionError)}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Is the food made fresh the same day?"
+                maxLength={500}
+              />
+              {showErrors && questionError && (
+                <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
+                  {questionError}
+                </p>
+              )}
+            </div>
+            <Button type="submit" size="sm" className="mt-4" loading={submitting}>
+              Ask anonymously
+            </Button>
+          </form>
+        ) : (
+          <div className="rounded-2xl border border-border bg-surface-raised p-4 text-center">
+            <h3 className="text-base font-bold">Ask the club</h3>
+            <p className="mt-1 text-xs text-ink-muted">
+              Sign in to ask a question or mark answers helpful. You stay anonymous as "Student".
             </p>
-          )}
-        </div>
-        <Button type="submit" size="sm" className="mt-4" loading={submitting}>
-          Ask anonymously
-        </Button>
-      </form>
-      )}
+            <div className="mx-auto mt-3 max-w-xs">
+              <GoogleButton label="Sign in to ask" redirectPath={`/listing/${listingId}/qa`} />
+            </div>
+          </div>
+        ))}
 
       {loading ? (
         <div className="mt-4 space-y-3" aria-busy="true" aria-label="Loading questions">
@@ -286,7 +361,15 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
           </div>
           <ul className="mt-3 space-y-3">
             {sorted.map((entry) => (
-              <QAItem key={entry.id} entry={entry} canRespond={canRespond} onResponded={() => void refetch()} />
+              <QAItem
+                key={entry.id}
+                entry={entry}
+                canRespond={canRespond}
+                signedIn={signedIn}
+                votedQuestion={votes.has(`${entry.id}:question`)}
+                votedAnswer={votes.has(`${entry.id}:answer`)}
+                onResponded={() => void refetch()}
+              />
             ))}
           </ul>
         </>

@@ -19,6 +19,7 @@ import {
   ORDER_TYPE_BADGE,
   ORDER_TYPE_SHORT,
   ORDER_TYPE_TO_PICKUP_TYPE,
+  spotHoursText,
 } from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
 import { getTimeLeft } from "@/lib/format";
@@ -34,6 +35,8 @@ interface LocationEntry {
   listing: ListingWithClub;
   /** The order type for this listing at this specific spot (null = legacy). */
   orderType: OrderType | null;
+  /** Availability hours/timing text for this spot, shown in the popup. */
+  hoursText: string;
 }
 
 interface LocationGroup {
@@ -118,12 +121,19 @@ export default function MapPage() {
         (slot) => slot.location_id && slot.campus_locations && new Date(slot.end_time).getTime() >= now,
       );
 
+      // Hours/timing text for a spot at a given location (multi-day -> note).
+      const hoursAt = (locationId: string): string => {
+        const spot = spots.find((s) => s.location_id === locationId);
+        return spot ? spotHoursText(spot) : "";
+      };
+
       let places: {
         name: string;
         lat: number;
         lng: number;
         orderType: OrderType | null;
         pickupType: PickupType;
+        hoursText: string;
       }[];
 
       if (upcomingSlotLocs.length > 0) {
@@ -138,6 +148,7 @@ export default function MapPage() {
             lng: Number(loc.longitude),
             orderType,
             pickupType: orderType ? ORDER_TYPE_TO_PICKUP_TYPE[orderType] : "both",
+            hoursText: hoursAt(loc.id),
           });
         }
         places = [...byLoc.values()];
@@ -157,6 +168,7 @@ export default function MapPage() {
                   lng: Number(spot.campus_locations.longitude),
                   orderType: spot.order_type as OrderType | null,
                   pickupType: ORDER_TYPE_TO_PICKUP_TYPE[spot.order_type],
+                  hoursText: spotHoursText(spot),
                 },
               ]
             : [],
@@ -169,6 +181,7 @@ export default function MapPage() {
             lng: Number(listing.campus_locations.longitude),
             orderType: null,
             pickupType: (listing.campus_locations.pickup_type ?? "both") as PickupType,
+            hoursText: "",
           },
         ];
       } else {
@@ -177,9 +190,10 @@ export default function MapPage() {
 
       for (const place of places) {
         const key = `${place.lat},${place.lng}`;
+        const entry = { listing, orderType: place.orderType, hoursText: place.hoursText };
         const existing = byLocation.get(key);
         if (existing) {
-          existing.entries.push({ listing, orderType: place.orderType });
+          existing.entries.push(entry);
           if (existing.pickupType !== place.pickupType) existing.pickupType = "both";
         } else {
           byLocation.set(key, {
@@ -187,7 +201,7 @@ export default function MapPage() {
             name: place.name,
             pickupType: place.pickupType,
             position: [place.lat, place.lng],
-            entries: [{ listing, orderType: place.orderType }],
+            entries: [entry],
           });
         }
       }
@@ -367,7 +381,7 @@ export default function MapPage() {
               </button>
             </div>
             <div className="mt-2 space-y-2">
-              {selectedGroup.entries.map(({ listing, orderType }) => {
+              {selectedGroup.entries.map(({ listing, orderType, hoursText }) => {
                 const timeLeft = getTimeLeft(listing.expires_at);
                 const range = priceRange(listing.items ?? []);
                 const day = nextPickup(listing);
@@ -404,6 +418,11 @@ export default function MapPage() {
                           </span>
                         )}
                       </span>
+                      {hoursText && (
+                        <span className="mt-1 block whitespace-pre-wrap text-xs text-ink-muted">
+                          {hoursText}
+                        </span>
+                      )}
                     </span>
                     <Badge variant={timeLeft.urgent ? "urgent" : "neutral"}>{timeLeft.label}</Badge>
                   </Link>

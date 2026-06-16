@@ -192,6 +192,13 @@ interface SpotDraft {
   orderType: OrderType;
   availableStart: string;
   availableEnd: string;
+  hoursNote: string;
+}
+
+/** A spot's window spans >1 calendar day (datetime-local strings). */
+function spotDraftMultiDay(spot: SpotDraft): boolean {
+  if (!spot.availableStart || !spot.availableEnd) return false;
+  return new Date(spot.availableStart).toDateString() !== new Date(spot.availableEnd).toDateString();
 }
 
 type PublishMode = "publish" | "draft" | "autopost";
@@ -243,7 +250,7 @@ function SpotsEditor({
   const addSpot = () => {
     onChange([
       ...spots,
-      { locationId: "", orderType: "preorder", availableStart: "", availableEnd: "" },
+      { locationId: "", orderType: "preorder", availableStart: "", availableEnd: "", hoursNote: "" },
     ]);
   };
 
@@ -335,6 +342,24 @@ function SpotsEditor({
             The map shows this spot's pin only between these times. Leave blank to show it the
             whole drop.
           </p>
+          {spotDraftMultiDay(spot) && (
+            <div className="mt-2">
+              <Label htmlFor={`spot-hours-${index}`} className="mb-1 text-xs">
+                Hours per day (spans multiple days)
+              </Label>
+              <Textarea
+                id={`spot-hours-${index}`}
+                value={spot.hoursNote}
+                onChange={(e) => update(index, { hoursNote: e.target.value })}
+                placeholder={"Mon Jun 16: 11am–2pm\nTue Jun 17: 5pm–8pm"}
+                maxLength={500}
+                className="min-h-16"
+              />
+              <p className="mt-1 text-[11px] text-ink-muted">
+                Shown in the map pin popup so buyers know the hours each day.
+              </p>
+            </div>
+          )}
         </div>
       ))}
       <Button type="button" variant="secondary" size="sm" onClick={addSpot} disabled={spots.length >= 8}>
@@ -427,7 +452,13 @@ function ListingForm({
     onLocationAdded(location);
     setSpots((previous) => [
       ...previous,
-      { locationId: location.id, orderType: "preorder", availableStart: "", availableEnd: "" },
+      {
+        locationId: location.id,
+        orderType: "preorder",
+        availableStart: "",
+        availableEnd: "",
+        hoursNote: "",
+      },
     ]);
     setCustomName("");
     setCustomAddress("");
@@ -482,6 +513,7 @@ function ListingForm({
             orderType: spot.order_type,
             availableStart: spot.available_start ? toDatetimeLocal(new Date(spot.available_start)) : "",
             availableEnd: spot.available_end ? toDatetimeLocal(new Date(spot.available_end)) : "",
+            hoursNote: spot.hours_note ?? "",
           })),
         );
       });
@@ -531,6 +563,7 @@ function ListingForm({
         order_type: draft.orderType,
         available_start: draft.availableStart ? new Date(draft.availableStart).toISOString() : null,
         available_end: draft.availableEnd ? new Date(draft.availableEnd).toISOString() : null,
+        hours_note: spotDraftMultiDay(draft) ? draft.hoursNote.trim() || null : null,
       };
       const { error } = draft.id
         ? await supabase.from("listing_pickup_spots").update(payload).eq("id", draft.id)
@@ -913,6 +946,7 @@ function ListingRow({
   onEdit,
   onToggleActive,
   onPost,
+  onDelete,
 }: {
   listing: ListingWithClub;
   busy: boolean;
@@ -920,6 +954,7 @@ function ListingRow({
   onEdit: () => void;
   onToggleActive: () => void;
   onPost: () => void;
+  onDelete: () => void;
 }) {
   const timeLeft = useCountdown(listing.expires_at);
   const held = listing.draft || listing.auto_post_on_brand;
@@ -958,6 +993,11 @@ function ListingRow({
         {!held && (
           <Button variant="ghost" size="sm" loading={busy} onClick={onToggleActive}>
             {listing.active ? "Deactivate" : "Reactivate"}
+          </Button>
+        )}
+        {held && (
+          <Button variant="ghost" size="sm" loading={busy} onClick={onDelete} className="text-accent">
+            Delete
           </Button>
         )}
       </div>
@@ -1079,6 +1119,19 @@ export default function Dashboard() {
     setBusyId(null);
   };
 
+  const deleteDraft = async (listing: ListingWithClub) => {
+    if (!window.confirm(`Delete the draft "${listing.title}"? This can't be undone.`)) return;
+    setBusyId(listing.id);
+    const { error } = await supabase.from("listings").delete().eq("id", listing.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Draft deleted.");
+      await refetch();
+    }
+    setBusyId(null);
+  };
+
   const toggleActive = async (listing: ListingWithClub) => {
     setBusyId(listing.id);
     const { error } = await supabase
@@ -1190,6 +1243,7 @@ export default function Dashboard() {
                 onEdit={() => setFormMode(listing.id)}
                 onToggleActive={() => void toggleActive(listing)}
                 onPost={() => void publishDraft(listing)}
+                onDelete={() => void deleteDraft(listing)}
               />
             ))}
           </div>

@@ -5,6 +5,40 @@ import type {
   PickupType,
 } from "@/types/database";
 
+/** The availability fields a spot carries (subset of ListingPickupSpot). */
+export interface SpotAvailability {
+  available_start: string | null;
+  available_end: string | null;
+  hours_note: string | null;
+}
+
+/** True when a spot's availability window covers more than one calendar day. */
+export function spotSpansMultipleDays(spot: SpotAvailability): boolean {
+  if (!spot.available_start || !spot.available_end) return false;
+  return new Date(spot.available_start).toDateString() !== new Date(spot.available_end).toDateString();
+}
+
+/**
+ * Text describing when a spot's pickup is available: the per-day hours note for
+ * a multi-day window, otherwise the timing range (build spec 5 follow-up).
+ */
+export function spotHoursText(spot: SpotAvailability): string {
+  if (spotSpansMultipleDays(spot) && spot.hours_note?.trim()) return spot.hours_note.trim();
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  if (spot.available_start && spot.available_end) {
+    return `${fmt(spot.available_start)} – ${fmt(spot.available_end)}`;
+  }
+  if (spot.available_end) return `Until ${fmt(spot.available_end)}`;
+  if (spot.available_start) return `From ${fmt(spot.available_start)}`;
+  return "";
+}
+
 /** Human label for a spot's ordering rule (Batch 2 #3, Tranche 4 #5). */
 export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   same_day: "Same-day pickup",
