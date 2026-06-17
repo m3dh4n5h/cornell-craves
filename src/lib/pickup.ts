@@ -92,7 +92,7 @@ export function nextPickup(listing: ListingWithClub): Date | null {
 }
 
 /**
- * Whether the listing has a pickup "happening" — used to decide map pin
+ * Whether the listing has a pickup "happening" - used to decide map pin
  * visibility (#10). A drop with scheduled days only counts while at least one
  * day is today or upcoming; a drop with no scheduled days counts until expiry.
  */

@@ -73,7 +73,7 @@ export default function OrderForm() {
   const [splitEmails, setSplitEmails] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [createdGroup, setCreatedGroup] = useState<{ groupId: string; token: string } | null>(null);
-  // Private (invite-only) vs public (anyone fills open spots) — Tranche 4 #6.
+  // Private (invite-only) vs public (anyone fills open spots) - Tranche 4 #6.
   const [groupVisibility, setGroupVisibility] = useState<"private" | "public">("private");
   const [joiningPublic, setJoiningPublic] = useState(false);
 
@@ -340,7 +340,7 @@ export default function OrderForm() {
       navigate("/orders");
     } else if (result.open_token) {
       setCreatedGroup({ groupId: result.group_id, token: result.open_token });
-      toast.success("No open group yet — started one others can join.");
+      toast.success("No open group yet, so we started one others can join.");
     } else {
       navigate("/orders");
     }
@@ -394,14 +394,14 @@ export default function OrderForm() {
             Once they verify your payment, your QR pickup pass lands in {email.trim().toLowerCase()}.
           </p>
           <p className="mt-3 rounded-xl bg-primary/15 px-3 py-2.5 text-xs text-ink">
-            Your pass also shows up right here on the website — open your{" "}
+            Your pass also shows up right here on the website. Open your{" "}
             <span className="font-semibold">Orders</span> page once the club approves your payment,
             even if the email is slow.
           </p>
           <p className="mt-2 rounded-xl bg-surface px-3 py-2.5 text-xs text-ink-muted">
-            📩 Passes can land in <span className="font-semibold text-ink">spam</span> — check there
-            if you don't see it, and once it arrives mark it "Not spam" / add the sender to your
-            contacts so future passes go straight to your inbox.
+            📩 Passes can land in <span className="font-semibold text-ink">spam</span>, so check
+            there if you don't see it, and once it arrives mark it "Not spam" or add the sender to
+            your contacts so future passes go straight to your inbox.
           </p>
           <Button className="mt-6 w-full" onClick={() => navigate(`/orders/${placedId}`)}>
             Track my order

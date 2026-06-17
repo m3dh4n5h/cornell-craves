@@ -263,8 +263,8 @@ export default function AccountSettings() {
             {user?.email ?? cornellEmail}
           </p>
           <p className="mt-1.5 text-xs text-ink-muted">
-            Your Google account email — used for craving alerts, order updates, and QR passes. It
-            can't be changed.
+            Your Google account email, used for craving alerts, order updates, and QR passes. It
+            cannot be changed.
           </p>
         </div>
 

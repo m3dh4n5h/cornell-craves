@@ -1,7 +1,7 @@
 -- Cornell Craves: approving a brand respects how the club saved the listing.
 --   * "Post on approval" (auto_post_on_brand) listings publish automatically.
 --   * "Save as draft" listings STAY drafts, now flagged brand-approved, so the
---     club gets a manual "Post" button — they are never auto-posted.
+--     club gets a manual "Post" button - they are never auto-posted.
 -- Also: a draft files exactly one brand request; re-saving never duplicates it.
 
 alter table public.listings

@@ -457,7 +457,7 @@ export default function ClubTemplates() {
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Templates</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Save a fundraiser once, then relaunch it in seconds — by hand or on a schedule.
+            Save a fundraiser once, then relaunch it in seconds, by hand or on a schedule.
           </p>
         </div>
         {formMode === "closed" && (

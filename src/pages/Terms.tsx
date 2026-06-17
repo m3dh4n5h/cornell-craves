@@ -1,7 +1,11 @@
 const SECTIONS = [
   {
     heading: "What Cornell Craves is",
-    body: "Cornell Craves is a free directory that helps Cornell student clubs list food fundraisers and helps students find them. It is a student project, not a business, and it is not affiliated with, endorsed by, or operated by Cornell University.",
+    body: "Cornell Craves is a free directory that helps Cornell student clubs list food fundraisers and helps students find them. It is a student project, not a business, and it is not affiliated with, endorsed by, or operated by Cornell University. We provide listing and discovery tools only. We are not a seller, a food vendor, a delivery service, or a payment processor.",
+  },
+  {
+    heading: "Who can use it",
+    body: "Ordering, reserving pickups, and craving alerts are for current Cornell students and require an @cornell.edu Google account. Clubs must be legitimate Cornell student organizations and must be authorized by their organization to run the fundraiser they list. By using the service you confirm you meet these requirements.",
   },
   {
     heading: "We do not handle money",
@@ -9,7 +13,7 @@ const SECTIONS = [
   },
   {
     heading: "Clubs are responsible for their own listings",
-    body: "Each club is solely responsible for the accuracy of its listings, prices, pickup times, fulfillment, and for collecting and remitting any taxes. Cornell Craves does not verify, inspect, prepare, store, or deliver any food and makes no representation that an order will be fulfilled.",
+    body: "Each club is solely responsible for its listings, prices, pickup times, and fulfillment, and for complying with all applicable laws, including food-safety and health regulations, cottage-food and food-handler rules, Cornell policies, and any tax collection or remittance. Cornell Craves does not verify, inspect, prepare, store, handle, or deliver any food, and makes no representation that an order will be fulfilled. Clubs, not Cornell Craves, are responsible for the food they provide and for any claim arising from it.",
   },
   {
     heading: "Food safety and allergens",
@@ -17,19 +21,47 @@ const SECTIONS = [
   },
   {
     heading: "QR pickup passes",
-    body: "A QR pass confirms that a club marked your payment as received; it is not proof of payment on its own and does not guarantee a specific item. Keep your pass private. Cornell Craves is not liable for a pass that is shared, screenshotted, or intercepted.",
+    body: "A QR pass confirms that a club marked your payment as received. It is not proof of payment on its own and does not guarantee a specific item. Keep your pass private. Cornell Craves is not liable for a pass that is shared, screenshotted, or intercepted.",
   },
   {
     heading: "Accounts and accuracy",
-    body: "You agree to sign in with a genuine Google account and to provide accurate information, including your NetID and Cornell email. Do not impersonate others or place orders you do not intend to pay for. We may remove listings or accounts that abuse the service.",
+    body: "You agree to sign in with a genuine Google account and to provide accurate information, including your NetID and Cornell email. Do not impersonate others or place orders you do not intend to pay for. You are responsible for activity on your account.",
   },
   {
-    heading: "No warranty, no liability",
-    body: 'The service is provided "as is" without warranties of any kind. To the fullest extent allowed by law, the Cornell Craves maintainers are not liable for any indirect, incidental, or consequential damages, or for any loss arising from your use of the service, listings, payments, or food. Your use of Cornell Craves is at your own risk.',
+    heading: "Acceptable use",
+    body: "Do not use Cornell Craves to sell alcohol, tobacco, cannabis, or any unlawful or prohibited item, to harass or defraud anyone, to post false or infringing content, or to interfere with the service. We may remove listings, content, or accounts and suspend access at any time, with or without notice, to keep the service safe.",
+  },
+  {
+    heading: "Your content",
+    body: "You keep ownership of the listings, logos, photos, reviews, and questions you submit, and you grant Cornell Craves a non-exclusive license to display them within the service. You are responsible for having the rights to anything you upload and for ensuring it is accurate and lawful.",
+  },
+  {
+    heading: "Indemnification",
+    body: "To the fullest extent allowed by law, you agree to defend, indemnify, and hold harmless the Cornell Craves maintainers from any claim, loss, liability, or expense (including reasonable legal fees) arising out of your listings, your content, the food you provide or consume, your payments, or your use of the service. This is in addition to, and does not limit, your other responsibilities under these terms.",
+  },
+  {
+    heading: "No warranty",
+    body: 'The service is provided "as is" and "as available" without warranties of any kind, express or implied, including merchantability, fitness for a particular purpose, and non-infringement. We do not warrant that the service will be uninterrupted, error-free, or secure, or that any listing or club is accurate or reliable.',
+  },
+  {
+    heading: "Limitation of liability",
+    body: "To the fullest extent allowed by law, the Cornell Craves maintainers are not liable for any indirect, incidental, special, consequential, or punitive damages, or for any loss arising from your use of the service, listings, payments, or food. Your use of Cornell Craves is at your own risk.",
   },
   {
     heading: "Privacy",
-    body: "We store only what the service needs: your name, Cornell email and NetID, optional phone and payment handles, your orders and reservations, and your preferences. Clubs you order from can see the order details needed to fulfill it. Questions you ask in Q&A are anonymized. We do not sell your data. To have your data removed, contact the maintainers.",
+    body: "We store only what the service needs: your name, Cornell email and NetID, optional phone and payment handles, your orders and reservations, and your preferences. Clubs you order from can see the order details needed to fulfill it. Questions you ask in Q&A are anonymized. We do not sell your data. To have your data removed, delete your account in settings or contact the maintainers.",
+  },
+  {
+    heading: "Changes to these terms",
+    body: "We may update these terms as the service changes. The latest version always lives on this page, and continuing to use Cornell Craves after an update means you accept the new terms.",
+  },
+  {
+    heading: "Governing law",
+    body: "These terms are governed by the laws of the State of New York, without regard to conflict-of-law rules. Any dispute will be brought in the state or federal courts located in Tompkins County, New York.",
+  },
+  {
+    heading: "Contact",
+    body: "Cornell Craves is maintained by students. For data-removal requests, security issues, or questions about these terms, reach the maintainers through the project's GitHub repository.",
   },
 ];
 

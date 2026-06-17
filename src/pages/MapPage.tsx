@@ -116,7 +116,7 @@ export default function MapPage() {
         spots.find((spot) => spot.location_id === locationId)?.order_type ?? null;
 
       // #6: when a listing assigns locations to its pickup days, a location pins
-      // ONLY on a day it actually happens — i.e. it has an upcoming slot there.
+      // ONLY on a day it actually happens - i.e. it has an upcoming slot there.
       const upcomingSlotLocs = (listing.pickup_slots ?? []).filter(
         (slot) => slot.location_id && slot.campus_locations && new Date(slot.end_time).getTime() >= now,
       );
@@ -348,7 +348,7 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* Drop details render BELOW the map — the old on-map overlay clipped
+      {/* Drop details render BELOW the map - the old on-map overlay clipped
           awkwardly inside the rounded, overflow-hidden map container. */}
       <AnimatePresence>
         {selectedGroup && (

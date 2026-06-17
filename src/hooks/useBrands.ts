@@ -5,7 +5,7 @@ import { BRANDS } from "@/lib/brands";
 /**
  * The brand options shown to students and clubs: the built-in list plus any
  * brands an admin has deployed globally (Batch 2 #17). Deployed brands appear
- * everywhere the list is used — listing form, cravings chips — automatically.
+ * everywhere the list is used - listing form, cravings chips - automatically.
  */
 export function useBrandOptions(): string[] {
   const [extra, setExtra] = useState<string[]>([]);

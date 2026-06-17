@@ -187,7 +187,7 @@ export default function OrderDetail() {
                 Scanner not working? Show the pass code
               </summary>
               <p className="mt-2 text-xs text-ink-muted">
-                Read this {ordererQr.pickup_code.length}-character code to the club — it's the same
+                Read this {ordererQr.pickup_code.length}-character code to the club. It is the same
                 one in your email.
               </p>
               <p className="mt-1.5 rounded-xl bg-surface p-3 text-center font-mono text-lg font-bold tracking-[0.2em] text-ink">

@@ -235,7 +235,7 @@ function qrImageUrl(token: string): string {
 
 // Many email clients block remote images by default, hiding the QR (build spec 5 #13).
 const IMAGE_HINT =
-  "Don't see the QR image? Your email app may be blocking images — tap “Download images” or “Show images” to load it. If it still won't show, use the pickup code below.";
+  "Don't see the QR image? Your email app may be blocking images. Tap “Download images” or “Show images” to load it. If it still won't show, use the pickup code below.";
 
 function itemsSummary(items: OrderRecord["items_json"]): string {
   return items.map((item) => `${item.qty}x ${item.name}`).join(", ");
@@ -256,7 +256,7 @@ async function requireClubUser(authHeader: string | null): Promise<string> {
 // a user can only ever delete themselves. Removes their craving subscription
 // (keyed by email, so it won't cascade) then hard-deletes the auth user; FK
 // cascades remove the club/student row and everything hanging off it. Needs the
-// service role — which is exactly why this lives in the function, not an RPC.
+// service role - which is exactly why this lives in the function, not an RPC.
 async function deleteAccount(authHeader: string | null): Promise<{ deleted: boolean }> {
   if (!authHeader?.startsWith("Bearer ")) throw new Error("Missing authorization");
   const { data, error } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
@@ -774,7 +774,7 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
     .select("id")
     .eq("group_id", group.id)
     .neq("status", "paid");
-  // Passes go out only once the WHOLE group has paid — until then the club is
+  // Passes go out only once the WHOLE group has paid - until then the club is
   // just checking members off.
   if ((remaining ?? []).length > 0) {
     return { ok: true };
@@ -793,7 +793,7 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
     const target = emails.find((entry) => entry.user_id === m.user_id);
     if (!target || !m.qr_encrypted) continue;
     const html = emailShell(
-      "Your group is fully paid — here is your pass",
+      "Your group is fully paid, here is your pass",
       paragraph(
         `${escapeHtml(club?.name ?? "The club")} confirmed everyone's share of ${escapeHtml(group.item_name)} (${escapeHtml(listing.title)}). Show this QR at ${escapeHtml(where)}:`,
       ) +
@@ -1130,7 +1130,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Brand corrected after posting: alert subscribers of the NEW brand. The
     // notifications_log (craving_id, listing_id) dedupe means anyone already
-    // notified for this listing — including under the old brand — is skipped,
+    // notified for this listing - including under the old brand - is skipped,
     // so a single listing never double-notifies a person (build spec 5 #15).
     if (payload.table === "listings" && payload.type === "UPDATE" && payload.record) {
       const next = payload.record as unknown as ListingRecord;

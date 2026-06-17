@@ -27,9 +27,9 @@ interface QRScannerProps {
 
 /**
  * Camera scanner that works across browsers. Uses the native BarcodeDetector
- * API where available (Chrome/Edge/Android — fast), and falls back to jsQR
+ * API where available (Chrome/Edge/Android - fast), and falls back to jsQR
  * decoding of canvas frames everywhere else, including Safari on macOS and iOS
- * — which has no BarcodeDetector. A paste-the-code field is the final fallback.
+ * - which has no BarcodeDetector. A paste-the-code field is the final fallback.
  */
 export function QRScanner({ onToken, busy = false }: QRScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);

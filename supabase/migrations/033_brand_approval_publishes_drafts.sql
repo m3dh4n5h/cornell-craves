@@ -1,5 +1,5 @@
 -- Cornell Craves: approving a brand request (one-time OR deploy-to-all) now also
--- publishes the requesting club's listings that were held for that brand — the
+-- publishes the requesting club's listings that were held for that brand - the
 -- drafts and post-on-approval listings. Previously "Approve once" did nothing to
 -- those listings, so they could never go live.
 

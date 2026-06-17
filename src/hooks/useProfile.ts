@@ -20,8 +20,8 @@ type ProfileContextValue = {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 /**
- * Holds the signed-in user's profile in ONE place so every screen — including
- * the onboarding redirect gate — reads the same value. Without this, filling
+ * Holds the signed-in user's profile in ONE place so every screen - including
+ * the onboarding redirect gate - reads the same value. Without this, filling
  * out onboarding only updated the local copy on that page, and other pages
  * kept redirecting back as if no details had been entered.
  */

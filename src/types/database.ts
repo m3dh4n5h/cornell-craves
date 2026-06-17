@@ -94,6 +94,55 @@ export type BrandRequestWithClub = BrandRequest & {
   clubs: Pick<Club, "name" | "email"> | null;
 };
 
+/** Admin operations dashboard shapes (SECURITY DEFINER RPCs). */
+export type AdminOverview = {
+  clubs_total: number;
+  clubs_pending: number;
+  clubs_approved: number;
+  listings_total: number;
+  listings_active: number;
+  listings_draft: number;
+  orders_total: number;
+  orders_verified: number;
+  orders_pending: number;
+  revenue: number;
+  students: number;
+  cravings: number;
+  reservations: number;
+  brand_requests_pending: number;
+  global_brands: number;
+};
+
+export type AdminBrandRequest = {
+  id: string;
+  requested_name: string;
+  status: BrandRequestStatus;
+  created_at: string;
+  club_id: string;
+  club_name: string;
+  club_email: string;
+};
+
+export type AdminClub = {
+  id: string;
+  name: string;
+  email: string;
+  approved: boolean;
+  created_at: string;
+  logo_url: string | null;
+  venmo: string | null;
+  listings: number;
+  active_listings: number;
+  orders: number;
+  revenue: number;
+};
+
+export type AdminGlobalBrand = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
 export type Listing = {
   id: string;
   club_id: string;
@@ -921,6 +970,30 @@ export type Database = {
       request_brand: {
         Args: { p_name: string };
         Returns: string;
+      };
+      admin_overview: {
+        Args: Record<string, never>;
+        Returns: AdminOverview | null;
+      };
+      admin_brand_requests: {
+        Args: Record<string, never>;
+        Returns: AdminBrandRequest[];
+      };
+      admin_clubs: {
+        Args: Record<string, never>;
+        Returns: AdminClub[];
+      };
+      admin_global_brands: {
+        Args: Record<string, never>;
+        Returns: AdminGlobalBrand[];
+      };
+      admin_remove_brand: {
+        Args: { p_brand_id: string };
+        Returns: undefined;
+      };
+      admin_set_club_approved: {
+        Args: { p_club_id: string; p_approved: boolean };
+        Returns: undefined;
       };
       decide_brand_request: {
         Args: { p_id: string; p_name: string; p_action: "one_time" | "global" | "reject" };

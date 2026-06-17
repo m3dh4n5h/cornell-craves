@@ -187,8 +187,8 @@ export default function Register() {
         <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
           <h1 className="text-2xl font-extrabold tracking-tight">You have a student account</h1>
           <p className="mt-3 text-sm text-ink-muted">
-            {user?.email} is registered as a student. One account is one type — delete your student
-            account in settings first, then register as a club.
+            {user?.email} is registered as a student. One account is one type, so delete your
+            student account in settings first, then register as a club.
           </p>
           <Button className="mt-6 w-full" onClick={() => navigate("/account/settings")}>
             Open account settings
@@ -280,6 +280,19 @@ export default function Register() {
         <Button type="submit" className="w-full" size="lg" loading={submitting}>
           Register club
         </Button>
+        <p className="text-center text-xs text-ink-muted">
+          By registering you agree to the{" "}
+          <a
+            href="/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
+          >
+            terms
+          </a>{" "}
+          and confirm your club is solely responsible for its listings, fulfillment, payments, and
+          food safety. Cornell Craves does not handle money or food.
+        </p>
       </form>
     </div>
   );
