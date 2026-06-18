@@ -1,9 +1,8 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Heart } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { hasVoted, markVoted } from "@/lib/local";
 import { RatingStars } from "@/components/RatingStars";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,28 +25,55 @@ interface ReviewCardProps {
   review: Review;
   /** True when the signed-in user owns the listing's club. */
   canRespond?: boolean;
+  /** True when a user is signed in (required to mark helpful). */
+  signedIn?: boolean;
+  /** True when the caller already marked this review helpful. */
+  initialVoted?: boolean;
+  /** True when the signed-in user wrote this review (cannot mark it helpful). */
+  ownReview?: boolean;
   onResponded?: () => void;
 }
 
-export function ReviewCard({ review, canRespond = false, onResponded }: ReviewCardProps) {
+export function ReviewCard({
+  review,
+  canRespond = false,
+  signedIn = false,
+  initialVoted = false,
+  ownReview = false,
+  onResponded,
+}: ReviewCardProps) {
   const reduceMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(false);
-  const [voted, setVoted] = useState(() => hasVoted("review", review.id));
+  const [voted, setVoted] = useState(initialVoted);
   const [helpfulCount, setHelpfulCount] = useState(review.helpful_count);
+  const [voting, setVoting] = useState(false);
   const [responding, setResponding] = useState(false);
   const [responseDraft, setResponseDraft] = useState("");
   const [submittingResponse, setSubmittingResponse] = useState(false);
+
+  useEffect(() => setVoted(initialVoted), [initialVoted]);
 
   const isLong = review.body.length > 240;
   const body = isLong && !expanded ? `${review.body.slice(0, 240).trimEnd()}...` : review.body;
 
   const voteHelpful = async () => {
-    if (voted) return;
-    setVoted(true);
-    setHelpfulCount((count) => count + 1);
-    markVoted("review", review.id);
-    const { error } = await supabase.rpc("vote_review_helpful", { p_review_id: review.id });
-    if (error) toast.error("Could not record your vote");
+    if (!signedIn) {
+      toast.error("Sign in to mark reviews helpful");
+      return;
+    }
+    if (voting) return;
+    setVoting(true);
+    const { data, error } = await supabase.rpc("toggle_review_helpful", {
+      p_review_id: review.id,
+    });
+    setVoting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const result = data as unknown as { voted: boolean; count: number };
+    setVoted(result.voted);
+    setHelpfulCount(result.count);
   };
 
   const submitResponse = async (event: FormEvent) => {
@@ -128,11 +154,13 @@ export function ReviewCard({ review, canRespond = false, onResponded }: ReviewCa
         </div>
       )}
 
+      {/* The author cannot mark their own review helpful. */}
+      {!ownReview && (
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => void voteHelpful()}
-          disabled={voted}
+          disabled={voting}
           aria-pressed={voted}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
@@ -153,6 +181,7 @@ export function ReviewCard({ review, canRespond = false, onResponded }: ReviewCa
           Helpful{helpfulCount > 0 ? ` (${helpfulCount})` : ""}
         </button>
       </div>
+      )}
     </article>
   );
 }

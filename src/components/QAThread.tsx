@@ -83,6 +83,7 @@ function QAItem({
   entry,
   canRespond,
   signedIn,
+  ownQuestion,
   votedQuestion,
   votedAnswer,
   onResponded,
@@ -90,6 +91,8 @@ function QAItem({
   entry: QAEntry;
   canRespond: boolean;
   signedIn: boolean;
+  /** True when the signed-in user asked this question (cannot mark it helpful). */
+  ownQuestion: boolean;
   votedQuestion: boolean;
   votedAnswer: boolean;
   onResponded: () => void;
@@ -130,15 +133,18 @@ function QAItem({
       </div>
       <p className="mt-1.5 whitespace-pre-wrap break-words text-sm">{entry.question}</p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <HelpfulButton
-          qaId={entry.id}
-          target="question"
-          initialVoted={votedQuestion}
-          initialCount={entry.helpful_count}
-          canVote={signedIn}
-        />
-      </div>
+      {/* The asker cannot mark their own question helpful. */}
+      {!ownQuestion && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <HelpfulButton
+            qaId={entry.id}
+            target="question"
+            initialVoted={votedQuestion}
+            initialCount={entry.helpful_count}
+            canVote={signedIn}
+          />
+        </div>
+      )}
 
       {entry.club_response ? (
         <motion.div
@@ -154,15 +160,18 @@ function QAItem({
           {entry.response_date && (
             <p className="mt-1 text-xs text-ink-muted/80">{formatDate(entry.response_date)}</p>
           )}
-          <div className="mt-2">
-            <HelpfulButton
-              qaId={entry.id}
-              target="answer"
-              initialVoted={votedAnswer}
-              initialCount={entry.answer_helpful_count}
-              canVote={signedIn}
-            />
-          </div>
+          {/* The club cannot mark its own answer helpful. */}
+          {!canRespond && (
+            <div className="mt-2">
+              <HelpfulButton
+                qaId={entry.id}
+                target="answer"
+                initialVoted={votedAnswer}
+                initialCount={entry.answer_helpful_count}
+                canVote={signedIn}
+              />
+            </div>
+          )}
         </motion.div>
       ) : canRespond ? (
         <div className="mt-3">
@@ -215,6 +224,22 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
   const [question, setQuestion] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // The asker's anonymized hash, so we can hide "Helpful" on their own question.
+  const [myHash, setMyHash] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (user?.email) {
+      void sha256Hex(user.email).then((hash) => {
+        if (!cancelled) setMyHash(hash);
+      });
+    } else {
+      setMyHash(null);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const refetch = useCallback(async () => {
     const { data, error } = await supabase
@@ -366,6 +391,7 @@ export function QAThread({ listingId, canRespond, isClub }: QAThreadProps) {
                 entry={entry}
                 canRespond={canRespond}
                 signedIn={signedIn}
+                ownQuestion={Boolean(myHash) && entry.question_email === myHash}
                 votedQuestion={votes.has(`${entry.id}:question`)}
                 votedAnswer={votes.has(`${entry.id}:answer`)}
                 onResponded={() => void refetch()}

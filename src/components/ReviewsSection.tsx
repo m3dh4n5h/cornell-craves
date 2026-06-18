@@ -4,6 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { MessageSquarePlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import { RatingStars } from "@/components/RatingStars";
 import { ReviewCard } from "@/components/ReviewCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -29,10 +30,16 @@ interface ReviewsSectionProps {
 function VirtualReviewList({
   reviews,
   canRespond,
+  signedIn,
+  votes,
+  userEmail,
   onResponded,
 }: {
   reviews: Review[];
   canRespond: boolean;
+  signedIn: boolean;
+  votes: Set<string>;
+  userEmail: string;
   onResponded: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -46,17 +53,27 @@ function VirtualReviewList({
   return (
     <div ref={listRef}>
       <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((row) => (
-          <div
-            key={row.key}
-            data-index={row.index}
-            ref={virtualizer.measureElement}
-            className="absolute left-0 top-0 w-full pb-3"
-            style={{ transform: `translateY(${row.start - virtualizer.options.scrollMargin}px)` }}
-          >
-            <ReviewCard review={reviews[row.index]} canRespond={canRespond} onResponded={onResponded} />
-          </div>
-        ))}
+        {virtualizer.getVirtualItems().map((row) => {
+          const review = reviews[row.index];
+          return (
+            <div
+              key={row.key}
+              data-index={row.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 top-0 w-full pb-3"
+              style={{ transform: `translateY(${row.start - virtualizer.options.scrollMargin}px)` }}
+            >
+              <ReviewCard
+                review={review}
+                canRespond={canRespond}
+                signedIn={signedIn}
+                initialVoted={votes.has(review.id)}
+                ownReview={Boolean(userEmail) && review.reviewer_email.toLowerCase() === userEmail}
+                onResponded={onResponded}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -64,7 +81,11 @@ function VirtualReviewList({
 
 export function ReviewsSection({ listingId, canRespond, isClub, onChanged }: ReviewsSectionProps) {
   const reduceMotion = useReducedMotion();
+  const { user } = useAuth();
+  const signedIn = Boolean(user);
+  const userEmail = (user?.email ?? "").toLowerCase();
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [votes, setVotes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [starFilter, setStarFilter] = useState<number | null>(null);
   // Only a signed-in buyer with a verified order may post (Batch 2 #13).
@@ -100,11 +121,26 @@ export function ReviewsSection({ listingId, canRespond, isClub, onChanged }: Rev
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Could not load reviews");
+      setLoading(false);
+      return;
+    }
+    const rows = data ?? [];
+    setReviews(rows);
+    // The caller's own helpful votes drive the toggled state (RLS limits to self).
+    if (user && rows.length > 0) {
+      const { data: voteRows } = await supabase
+        .from("review_helpful_votes")
+        .select("review_id")
+        .in(
+          "review_id",
+          rows.map((row) => row.id),
+        );
+      setVotes(new Set((voteRows ?? []).map((vote) => vote.review_id)));
     } else {
-      setReviews(data ?? []);
+      setVotes(new Set());
     }
     setLoading(false);
-  }, [listingId]);
+  }, [listingId, user]);
 
   useEffect(() => {
     void refetch();
@@ -322,7 +358,14 @@ export function ReviewsSection({ listingId, canRespond, isClub, onChanged }: Rev
                 onAction={() => setStarFilter(null)}
               />
             ) : filtered.length > VIRTUALIZE_THRESHOLD ? (
-              <VirtualReviewList reviews={filtered} canRespond={canRespond} onResponded={() => void refetch()} />
+              <VirtualReviewList
+                reviews={filtered}
+                canRespond={canRespond}
+                signedIn={signedIn}
+                votes={votes}
+                userEmail={userEmail}
+                onResponded={() => void refetch()}
+              />
             ) : (
               <div className="space-y-3">
                 {filtered.map((review) => (
@@ -330,6 +373,9 @@ export function ReviewsSection({ listingId, canRespond, isClub, onChanged }: Rev
                     key={review.id}
                     review={review}
                     canRespond={canRespond}
+                    signedIn={signedIn}
+                    initialVoted={votes.has(review.id)}
+                    ownReview={Boolean(userEmail) && review.reviewer_email.toLowerCase() === userEmail}
                     onResponded={() => void refetch()}
                   />
                 ))}

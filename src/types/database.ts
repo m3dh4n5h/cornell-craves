@@ -143,6 +143,12 @@ export type AdminGlobalBrand = {
   created_at: string;
 };
 
+export type AdminBrandRevenue = {
+  brand: string;
+  revenue: number;
+  orders: number;
+};
+
 export type Listing = {
   id: string;
   club_id: string;
@@ -248,6 +254,7 @@ export type QAEntry = {
   response_date: string | null;
   helpful_count: number;
   answer_helpful_count: number;
+  question_user_id: string | null;
   created_at: string;
 };
 
@@ -823,6 +830,20 @@ export type Database = {
           },
         ];
       };
+      review_helpful_votes: {
+        Row: { id: string; review_id: string; user_id: string; created_at: string };
+        Insert: { id?: string; review_id: string; user_id: string; created_at?: string };
+        Update: Partial<{ review_id: string }>;
+        Relationships: [
+          {
+            foreignKeyName: "review_helpful_votes_review_id_fkey";
+            columns: ["review_id"];
+            isOneToOne: false;
+            referencedRelation: "reviews";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       recurring_templates: {
         Row: RecurringTemplate;
         Insert: RecurringTemplateInsert;
@@ -994,6 +1015,18 @@ export type Database = {
       admin_set_club_approved: {
         Args: { p_club_id: string; p_approved: boolean };
         Returns: undefined;
+      };
+      admin_revenue_by_brand: {
+        Args: Record<string, never>;
+        Returns: AdminBrandRevenue[];
+      };
+      am_i_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      toggle_review_helpful: {
+        Args: { p_review_id: string };
+        Returns: { voted: boolean; count: number };
       };
       decide_brand_request: {
         Args: { p_id: string; p_name: string; p_action: "one_time" | "global" | "reject" };

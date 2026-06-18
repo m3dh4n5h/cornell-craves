@@ -12,13 +12,14 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type {
   AdminBrandRequest,
+  AdminBrandRevenue,
   AdminClub,
   AdminGlobalBrand,
   AdminOverview,
 } from "@/types/database";
 
 type BrandDecision = "one_time" | "global" | "reject";
-type TabId = "approvals" | "requests" | "clubs" | "brands";
+type TabId = "approvals" | "requests" | "clubs" | "revenue" | "brands";
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -149,6 +150,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "approvals", label: "Approvals" },
   { id: "requests", label: "Brand requests" },
   { id: "clubs", label: "Clubs" },
+  { id: "revenue", label: "Revenue" },
   { id: "brands", label: "Brands" },
 ];
 
@@ -158,6 +160,8 @@ export default function Admin() {
   const [requests, setRequests] = useState<AdminBrandRequest[]>([]);
   const [clubs, setClubs] = useState<AdminClub[]>([]);
   const [brands, setBrands] = useState<AdminGlobalBrand[]>([]);
+  const [brandRevenue, setBrandRevenue] = useState<AdminBrandRevenue[]>([]);
+  const [backendAdmin, setBackendAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("approvals");
@@ -168,18 +172,22 @@ export default function Admin() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [ov, rq, cl, br] = await Promise.all([
+    const [ov, rq, cl, br, rev, me] = await Promise.all([
       supabase.rpc("admin_overview"),
       supabase.rpc("admin_brand_requests"),
       supabase.rpc("admin_clubs"),
       supabase.rpc("admin_global_brands"),
+      supabase.rpc("admin_revenue_by_brand"),
+      supabase.rpc("am_i_admin"),
     ]);
-    const firstError = ov.error || rq.error || cl.error || br.error;
+    const firstError = ov.error || rq.error || cl.error || br.error || rev.error || me.error;
     if (firstError) setError(firstError.message);
     setOverview((ov.data as AdminOverview | null) ?? null);
     setRequests((rq.data as unknown as AdminBrandRequest[]) ?? []);
     setClubs((cl.data as unknown as AdminClub[]) ?? []);
     setBrands((br.data as unknown as AdminGlobalBrand[]) ?? []);
+    setBrandRevenue((rev.data as unknown as AdminBrandRevenue[]) ?? []);
+    setBackendAdmin(me.error ? null : (me.data as boolean | null) ?? false);
     setLoading(false);
   }, []);
 
@@ -188,6 +196,10 @@ export default function Admin() {
   }, [isAdmin, load]);
 
   const pendingClubs = useMemo(() => clubs.filter((club) => !club.approved), [clubs]);
+  const clubsByRevenue = useMemo(
+    () => [...clubs].sort((a, b) => Number(b.revenue) - Number(a.revenue)),
+    [clubs],
+  );
   const filteredClubs = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return clubs;
@@ -327,6 +339,19 @@ export default function Admin() {
         </div>
       )}
 
+      {backendAdmin === false && (
+        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />
+          <span>
+            The app shows you this page, but the database does not recognize you as admin, so all
+            stats and brand requests come back empty. Update{" "}
+            <span className="font-mono">is_admin()</span> to your exact Google account email
+            (currently checks <span className="font-mono">{user.email}</span>) and re-run the
+            migration.
+          </span>
+        </div>
+      )}
+
       {/* Overview */}
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
@@ -369,7 +394,9 @@ export default function Admin() {
                 ? requests.length
                 : id === "clubs"
                   ? clubs.length
-                  : brands.length;
+                  : id === "brands"
+                    ? brands.length
+                    : 0;
           return (
             <button
               key={id}
@@ -475,6 +502,67 @@ export default function Admin() {
               </div>
             )}
           </>
+        ) : tab === "revenue" ? (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-bold">Revenue by brand</h3>
+              {brandRevenue.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">No verified revenue yet.</p>
+              ) : (
+                <div className="mt-2 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
+                  <table className="w-full min-w-[360px] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
+                        <th className="pb-2 font-semibold">Brand</th>
+                        <th className="pb-2 text-right font-semibold">Revenue</th>
+                        <th className="pb-2 text-right font-semibold">Orders</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {brandRevenue.map((row) => (
+                        <tr key={row.brand}>
+                          <td className="py-2 pr-2 font-semibold">{row.brand}</td>
+                          <td className="py-2 text-right font-mono font-bold">
+                            {formatPrice(Number(row.revenue))}
+                          </td>
+                          <td className="py-2 text-right font-mono text-ink-muted">{row.orders}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-bold">Revenue by club</h3>
+              {clubsByRevenue.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">No clubs yet.</p>
+              ) : (
+                <div className="mt-2 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
+                  <table className="w-full min-w-[360px] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
+                        <th className="pb-2 font-semibold">Club</th>
+                        <th className="pb-2 text-right font-semibold">Revenue</th>
+                        <th className="pb-2 text-right font-semibold">Orders</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {clubsByRevenue.map((club) => (
+                        <tr key={club.id}>
+                          <td className="py-2 pr-2 font-semibold">{club.name}</td>
+                          <td className="py-2 text-right font-mono font-bold">
+                            {formatPrice(Number(club.revenue))}
+                          </td>
+                          <td className="py-2 text-right font-mono text-ink-muted">{club.orders}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         ) : brands.length === 0 ? (
           <EmptyState
             icon={<Tag className="size-6" aria-hidden="true" />}
