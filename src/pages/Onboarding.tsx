@@ -7,6 +7,7 @@ import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
 import { isValidNetid } from "@/lib/orders";
 import { isCornellEmail } from "@/lib/identity";
+import { TermsAgreement } from "@/components/TermsAgreement";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,7 @@ export default function Onboarding() {
   const [netid, setNetid] = useState("");
   const [venmo, setVenmo] = useState("");
   const [phone, setPhone] = useState("");
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // First sign-up confirms the account type (build spec 5 #4). Persist the
@@ -96,6 +98,10 @@ export default function Onboarding() {
     if (!user) return;
     setShowErrors(true);
     if (hasErrors) return;
+    if (!agreedTerms) {
+      toast.error("Please agree to the terms to continue.");
+      return;
+    }
     setSubmitting(true);
     const { error } = await supabase.from("users_extended").upsert({
       id: user.id,
@@ -231,6 +237,11 @@ export default function Onboarding() {
             autoComplete="tel"
           />
         </div>
+        <TermsAgreement
+          checked={agreedTerms}
+          onChange={setAgreedTerms}
+          invalid={showErrors && !agreedTerms}
+        />
         <Button type="submit" size="lg" className="w-full" loading={submitting}>
           Continue
         </Button>

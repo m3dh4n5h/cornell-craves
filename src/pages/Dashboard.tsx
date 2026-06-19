@@ -1107,6 +1107,15 @@ export default function Dashboard() {
   const brandApproved = (brandName: string) =>
     brandOptions.some((option) => option.toLowerCase() === brandName.trim().toLowerCase());
 
+  // A draft can be posted when its CURRENT brand is globally approved, or matches
+  // the exact brand the admin approved for this listing. Changing the brand to
+  // anything else drops authorization, forcing it back through approval.
+  const canPostDraft = (listing: ListingWithClub) =>
+    listing.draft &&
+    (brandApproved(listing.brand) ||
+      (listing.approved_brand != null &&
+        listing.brand.trim().toLowerCase() === listing.approved_brand.trim().toLowerCase()));
+
   // Publish a draft whose brand has since been approved (build spec 5 follow-up).
   const publishDraft = async (listing: ListingWithClub) => {
     setBusyId(listing.id);
@@ -1243,7 +1252,7 @@ export default function Dashboard() {
                 key={listing.id}
                 listing={listing}
                 busy={busyId === listing.id}
-                canPost={listing.draft && (listing.brand_approved || brandApproved(listing.brand))}
+                canPost={canPostDraft(listing)}
                 onEdit={() => setFormMode(listing.id)}
                 onToggleActive={() => void toggleActive(listing)}
                 onPost={() => void publishDraft(listing)}

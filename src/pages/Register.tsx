@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
 import { googleFullName } from "@/lib/identity";
+import { TermsAgreement } from "@/components/TermsAgreement";
 import { GoogleButton } from "@/components/GoogleButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ export default function Register() {
   const [name, setName] = useState("");
   const [venmo, setVenmo] = useState("");
   const [zelle, setZelle] = useState("");
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -135,6 +137,10 @@ export default function Register() {
     if (!user) return;
     setShowErrors(true);
     if (hasErrors) return;
+    if (!agreedTerms) {
+      toast.error("Please agree to the terms to register.");
+      return;
+    }
 
     setSubmitting(true);
     const { error } = await supabase.from("clubs").insert({
@@ -277,22 +283,15 @@ export default function Register() {
           />
         </div>
 
+        <TermsAgreement
+          checked={agreedTerms}
+          onChange={setAgreedTerms}
+          invalid={showErrors && !agreedTerms}
+          extra="and confirm my club is solely responsible for its listings, fulfillment, payments, and food safety. Cornell Craves does not handle money or food."
+        />
         <Button type="submit" className="w-full" size="lg" loading={submitting}>
           Register club
         </Button>
-        <p className="text-center text-xs text-ink-muted">
-          By registering you agree to the{" "}
-          <a
-            href="/terms"
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
-          >
-            terms
-          </a>{" "}
-          and confirm your club is solely responsible for its listings, fulfillment, payments, and
-          food safety. Cornell Craves does not handle money or food.
-        </p>
       </form>
     </div>
   );

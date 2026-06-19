@@ -43,8 +43,10 @@ type AuthedOrderRow = Order & {
     title: string;
     brand: string;
     pickup_info: string | null;
+    contact_email: string | null;
     expires_at: string;
     campus_locations: { name: string } | null;
+    clubs: { name: string } | null;
   } | null;
   order_qr_codes: OrderQRCode[];
 };
@@ -58,12 +60,14 @@ function mapAuthedRow(row: AuthedOrderRow): MyOrder {
     pickup_info: listings?.pickup_info ?? null,
     location_name: listings?.campus_locations?.name ?? null,
     expires_at: listings?.expires_at ?? order.created_at,
+    club_name: listings?.clubs?.name ?? null,
+    contact_email: listings?.contact_email ?? null,
     qr_codes: order_qr_codes ?? [],
   };
 }
 
 const AUTHED_ORDER_SELECT =
-  "*, listings(title, brand, pickup_info, expires_at, campus_locations(name)), order_qr_codes(*)";
+  "*, listings(title, brand, pickup_info, contact_email, expires_at, campus_locations(name), clubs(name)), order_qr_codes(*)";
 
 /** Signed-in students query by user id (RLS); guests look up via the RPC. */
 export async function fetchMyOrders(options: {

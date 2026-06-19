@@ -164,7 +164,8 @@ export type Listing = {
   cause_percent: number | null;
   draft: boolean;
   auto_post_on_brand: boolean;
-  brand_approved: boolean;
+  /** The exact brand name the admin approved for this listing, or null. */
+  approved_brand: string | null;
   avg_rating: number;
   review_count: number;
   expires_at: string;
@@ -363,6 +364,8 @@ export type MyOrder = Order & {
   pickup_info: string | null;
   location_name: string | null;
   expires_at: string;
+  club_name: string | null;
+  contact_email: string | null;
   qr_codes: OrderQRCode[];
 };
 
@@ -508,7 +511,7 @@ type ListingInsert = {
   cause_percent?: number | null;
   draft?: boolean;
   auto_post_on_brand?: boolean;
-  brand_approved?: boolean;
+  approved_brand?: string | null;
   avg_rating?: number;
   review_count?: number;
   expires_at: string;

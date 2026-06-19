@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, SearchX } from "lucide-react";
+import { ArrowLeft, Download, SearchX } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -27,6 +27,20 @@ export default function OrderDetail() {
   const [order, setOrder] = useState<MyOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [togglingProxy, setTogglingProxy] = useState(false);
+  const [savingPdf, setSavingPdf] = useState(false);
+
+  // Lazy-load jsPDF only when the buyer actually saves a PDF.
+  const downloadPdf = async (current: MyOrder) => {
+    setSavingPdf(true);
+    try {
+      const { saveOrderPdf } = await import("@/lib/orderPdf");
+      saveOrderPdf(current);
+    } catch {
+      toast.error("Could not generate the PDF. Please try again.");
+    } finally {
+      setSavingPdf(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id || !user) return;
@@ -103,7 +117,18 @@ export default function OrderDetail() {
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-extrabold tracking-tight">{order.listing_title}</h1>
-        <Badge variant={status.variant}>{status.label}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={status.variant}>{status.label}</Badge>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={savingPdf}
+            onClick={() => void downloadPdf(order)}
+          >
+            <Download className="size-3.5" aria-hidden="true" />
+            Save PDF
+          </Button>
+        </div>
       </div>
       <p className="mt-2 text-sm text-ink-muted">{STATUS_EXPLAINER[order.status]}</p>
 
@@ -140,6 +165,17 @@ export default function OrderDetail() {
         {(order.location_name || order.pickup_info) && (
           <p className="mt-1 text-xs text-ink-muted">
             Pickup: {order.location_name ?? order.pickup_info}
+          </p>
+        )}
+        {order.contact_email && (
+          <p className="mt-1 text-xs text-ink-muted">
+            Questions? Contact {order.club_name ?? "the club"} at{" "}
+            <a
+              href={`mailto:${order.contact_email}`}
+              className="font-medium text-ink underline-offset-2 hover-fine:underline"
+            >
+              {order.contact_email}
+            </a>
           </p>
         )}
       </section>
