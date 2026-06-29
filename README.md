@@ -108,6 +108,280 @@ Run the fundraiser like a real shop, not a group chat and a spreadsheet. Post a 
 
 ---
 
+## Getting started - Students
+
+### 1. Create your account
+
+1. Go to the app and tap **Sign in**.
+2. On the login screen, make sure the **Student** tab is selected.
+3. Tap **Continue with Google** and sign in with your Cornell Google account (`@cornell.edu`).
+4. You'll land on the **Onboarding** screen. Enter your Cornell NetID (e.g. `ab123`) and tap **Save**. This links your account to the Cornell community.
+
+That's it - you're in. You won't need to do this again.
+
+---
+
+### 2. Set up your profile and preferences
+
+Before your first order, fill in a few optional-but-useful things:
+
+1. Tap the **Account** tab (bottom right on mobile).
+2. Under **Payment handles**, add your Venmo username and/or Zelle phone number. Clubs will use these to confirm you've paid - saves you typing it every order.
+3. Tap **Dietary preferences** and toggle on any filters that apply (vegan, gluten-free, nut-free, etc.). These are saved to your account and pre-applied whenever you browse.
+4. Tap **Brand alerts** (or go to **Cravings** in the bottom nav) to subscribe to specific brands. You'll get an email the moment a club posts a drop for that brand.
+
+---
+
+### 3. Browse drops
+
+**Feed (Home tab)**
+
+The home feed shows every active drop on campus, newest first. Drops automatically disappear when they expire.
+
+- **Filter by brand** - tap any chip along the top (Krispy Kreme, Insomnia Cookies, Kung Fu Tea, etc.) to narrow the feed. Tap again to clear.
+- **Dietary icons** - each card shows allergen and dietary badges so you can spot what's safe at a glance.
+- **Countdown badge** - a timer on each card shows how long the drop is live. When it hits zero, ordering closes.
+- **Ratings** - the star rating and review count are live averages from past orders.
+
+**Map tab**
+
+Tap the map icon in the bottom nav to see a labeled campus map with a pin for every active pickup location.
+
+- Tap a pin to see which drops are picking up there and what dietary options are available.
+- Use the filter panel to show only drops matching your dietary preferences.
+- If you lose your connection, the map falls back to the last-known feed.
+
+---
+
+### 4. Read a listing
+
+Tap any card to open the full listing. It has four tabs:
+
+| Tab | What's there |
+|---|---|
+| **Items** | Every item, price, allergen icons, and a description |
+| **Reviews** | Star ratings and written reviews from past orders, with club replies |
+| **Q&A** | Public questions and club answers - ask anything about the drop |
+| **Pickup** | Pickup location(s), type (walk-up, table, delivery), and available time slots |
+
+Tap **Ask a question** on the Q&A tab to submit a question. The club answers publicly so everyone benefits.
+
+---
+
+### 5. Place a solo order
+
+1. On a listing, tap **Order**.
+2. Use the **+** and **−** steppers to pick quantities. A running total updates as you go.
+3. Enter your **Venmo username** or **Zelle phone number** (pre-filled if you saved them in Account settings).
+4. Pick a **pickup time slot** - slots show how many spots are left and close when full.
+5. Tap **Review order** to see a summary, then **Place order**.
+
+You'll receive a confirmation email. Your order appears under **My Orders** (bottom nav).
+
+> **Payment note:** Cornell Craves never handles money. After placing your order, pay the club directly over Venmo or Zelle. The club will confirm your payment and then email your QR pickup pass.
+
+---
+
+### 6. Place a split order
+
+Split orders let a group of friends share one large box, each paying their own share.
+
+1. On a listing, tap **Order**, then toggle **Split this order** at the top.
+2. Choose your item and set the **number of people** splitting with you.
+3. Tap **Start split order** - you'll get a shareable invite link.
+4. Share the link with your group. Each person opens it, signs in, and joins.
+5. Once the group is full, everyone gets an email unlocking payment. You each have **24 hours** to pay the club your share.
+6. The club confirms each payment individually. Each person gets their own QR pickup pass.
+
+**Deadline timer colors:**
+- Normal - more than 6 hours left
+- Orange - under 6 hours
+- Red - under 2 hours
+
+If a member doesn't pay in time, their slot is released and the club is notified.
+
+---
+
+### 7. Pick up your order
+
+Once the club confirms your payment:
+
+1. You'll get an email with your **QR pickup pass** attached.
+2. Open **My Orders** in the app, find your order, and tap it to view the pass on-screen.
+3. At pickup, show the QR code. The club scans it and marks you as picked up.
+4. If you can't load the QR, give the club your **10-character backup code** shown below the QR - it works the same way.
+
+Each pass is single-use. Once scanned, it's marked as used.
+
+---
+
+### 8. Leave a review
+
+After pickup, you can leave a review on the listing.
+
+1. Go to the listing page and open the **Reviews** tab.
+2. Tap **Write a review**, pick a star rating, and add a comment.
+3. Reviews are **one per person per listing** and can't be edited after submission - so be honest.
+
+Clubs can reply to your review publicly.
+
+---
+
+### 9. Manage your cravings (brand alerts)
+
+1. Tap **Cravings** in the bottom nav.
+2. Tap the bell next to any brand to subscribe. You'll get an email the moment a club posts a drop for that brand.
+3. Tap again to unsubscribe.
+
+---
+
+### 10. View past and upcoming pickups
+
+Tap **My Pickups** (accessible from the Account tab or bottom nav) to see:
+
+- **Upcoming** - pickups you're confirmed for, with time and location
+- **Past** - history of pickups you've attended
+
+Tap any entry to see the order details and your QR pass.
+
+---
+
+## Getting started - Clubs
+
+### 1. Register your club
+
+1. Go to the app and tap **Sign in**.
+2. On the login screen, select the **Club** tab.
+3. Tap **Continue with Google** and sign in with the Google account your club will use.
+4. You'll be sent to the **Club Registration** form. Fill in:
+   - Club name
+   - A short description
+   - Contact email
+   - Venmo and/or Zelle handle (where students will pay you)
+5. Submit. Your registration goes to the Cornell Craves admin for approval.
+6. Once approved, you'll receive a **welcome email** and your Club Dashboard will be unlocked.
+
+---
+
+### 2. Post a drop (the Dashboard)
+
+The Dashboard is your main hub. From here you can post new drops, edit existing ones, and jump to any of your tools.
+
+**To create a new drop:**
+
+1. On the Dashboard, tap **New drop** (the + button).
+2. Fill in the listing form:
+   - **Brand** - select from the approved list or choose "Other"
+   - **Title** - e.g. "Insomnia Cookies - Finals Week Drop"
+   - **Description** - tell students what's included, minimum order, any limits
+   - **Items** - add each item with a name, price, and optional description and allergen tags
+   - **Order deadline** - the date and time when ordering closes
+   - **Pickup type** - Walk-up, Table, or Delivery
+   - **Pickup location** - select a campus location from the map or enter a custom address
+   - **Time slots** - add one or more pickup windows with a start time, end time, and capacity (max students per slot)
+3. Tap **Post drop**. It goes live immediately on the student feed.
+
+**To edit or take down a drop:**
+
+Find the listing on your Dashboard, tap the three-dot menu, and choose **Edit** or **Remove**. Removing a drop that has existing orders will notify affected students.
+
+---
+
+### 3. Manage orders
+
+Tap **Orders** from the Dashboard (or the orders icon) to reach your orders view.
+
+**Order list features:**
+
+- Orders are grouped by listing. Tap a listing header to expand/collapse its orders.
+- Each order shows student name, items, total, payment handle, and current status.
+- **Filter** orders by status: All, Pending payment, Paid, Picked up, Canceled.
+- **Search** by student name or NetID.
+- **Export CSV** - download the full order list for any listing for your own records.
+
+**To confirm a payment:**
+
+1. Find the order (filter by "Pending payment" to focus).
+2. Verify the student paid you on Venmo or Zelle using the handle shown.
+3. Tap **Verify payment**. This immediately emails the student their QR pickup pass.
+
+---
+
+### 4. Scan QR passes at pickup
+
+At your pickup event, use the built-in scanner to check students in without manual lookups.
+
+1. From the Dashboard or Orders view, tap **Scan passes**.
+2. Allow camera access when prompted.
+3. Point the camera at a student's QR code. The scanner works on Safari and Chrome on iOS.
+4. A green confirmation means the pass is valid and the student is marked as picked up.
+5. A red error means the pass was already used or is invalid - check the backup code manually if needed.
+6. If a student shows you a **10-character backup code** instead, tap **Enter code** and type it in.
+
+---
+
+### 5. Manage pickup slots (Reservations)
+
+Tap **Reservations** (or **Pickup manager**) from the Dashboard to see a slot-by-slot view of who's coming when.
+
+- **Per-slot rosters** - see every student booked for each time slot with their order details.
+- **Mark picked up** - tap a student's name to mark them as picked up from this view (alternative to scanning).
+- **Send reminder** - tap **Remind** on a slot to email all students booked for it with the pickup time and location.
+- Use this view before each pickup to know your crowd size per slot and confirm attendance.
+
+---
+
+### 6. Analytics
+
+Tap **Analytics** from the Dashboard to see performance data for all your drops.
+
+| Section | What it shows |
+|---|---|
+| **Revenue** | Total earned per listing and across all drops |
+| **Units sold** | Item-by-item breakdown of quantities sold |
+| **Best sellers** | Top items by revenue and by units |
+| **Peak order times** | Hour-by-hour heatmap of when orders come in |
+| **Dietary mix** | Breakdown of dietary preferences across your orders |
+
+Use analytics to decide which brands to run again, what items to price higher or cut, and when to post new drops for maximum visibility.
+
+---
+
+### 7. Templates
+
+Templates let you save a winning drop and relaunch it in two clicks - no re-entering items, slots, or descriptions.
+
+**To save a template:**
+
+1. Go to the listing you want to save.
+2. Tap the three-dot menu and choose **Save as template**.
+3. Give the template a name (e.g. "Insomnia Finals Drop").
+
+**To launch from a template:**
+
+1. Tap **Templates** from the Dashboard.
+2. Find the template and tap **Use template**.
+3. The new drop form pre-fills with all the saved items and settings. Update the order deadline and pickup slots, then post.
+
+Templates are private to your club.
+
+---
+
+### 8. Reply to reviews and Q&A
+
+Students can leave reviews and ask questions on your listings. Engaging with them builds trust.
+
+**Reviews (Listings → Reviews tab):**
+- Tap **Reply** under any review to post a public response.
+- Replies are visible to all students browsing the listing.
+
+**Q&A (Listings → Q&A tab):**
+- Unanswered questions show a badge on your Dashboard.
+- Tap a question and tap **Answer** to post a public reply.
+- Questions with answers help future students and reduce repeat questions.
+
+---
+
 ## Tech stack
 
 React 18, Vite, and TypeScript. Tailwind v4 with CSS-first tokens, customized shadcn-style components, and Framer Motion. MapLibre GL on a labeled OpenStreetMap basemap, Recharts, and qrcode. Supabase for Postgres, Auth, and Edge Functions. Brevo for email. Hosted on Cloudflare Pages.
