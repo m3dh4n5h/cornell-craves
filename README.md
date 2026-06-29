@@ -6,6 +6,8 @@
 
 Built with React, Vite, Tailwind v4, and Supabase. Money goes straight to clubs over Venmo and Zelle. Cornell Craves never touches a cent of it.
 
+**[cornell-craves.pages.dev](https://cornell-craves.pages.dev)** - live demo
+
 </div>
 
 ---
@@ -115,7 +117,7 @@ Run the fundraiser like a real shop, not a group chat and a spreadsheet. Post a 
 1. Go to the app and tap **Sign in**.
 2. On the login screen, make sure the **Student** tab is selected.
 3. Tap **Continue with Google** and sign in with your Cornell Google account (`@cornell.edu`).
-4. You'll land on the **Onboarding** screen. Enter your Cornell NetID (e.g. `ab123`) and tap **Save**. This links your account to the Cornell community.
+4. You'll land on the **Onboarding** screen. Enter your Cornell NetID (e.g. `ab123`) and tap **Save**.
 
 That's it - you're in. You won't need to do this again.
 
