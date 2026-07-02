@@ -121,6 +121,46 @@ export type AdminBrandRequest = {
   club_id: string;
   club_name: string;
   club_email: string;
+  /** Listings this club has held (draft or post-on-approval) for this brand. */
+  held_listings: number;
+};
+
+/** A one-time brand approval scoped to a single club (migration 040). */
+export type ClubBrandApproval = {
+  id: string;
+  club_id: string;
+  brand: string;
+  created_at: string;
+};
+
+export type AdminClubBrandApproval = ClubBrandApproval & {
+  club_name: string;
+};
+
+/** Admin moderation row: every listing with its club (migration 040). */
+export type AdminListing = {
+  id: string;
+  title: string;
+  brand: string;
+  club_id: string;
+  club_name: string;
+  active: boolean;
+  draft: boolean;
+  auto_post_on_brand: boolean;
+  expires_at: string;
+  created_at: string;
+  orders: number;
+};
+
+/** One-call club dashboard header stats (migration 040). */
+export type ClubDashboardStats = {
+  live_drops: number;
+  held_drops: number;
+  orders_pending: number;
+  orders_total: number;
+  revenue: number;
+  upcoming_reservations: number;
+  pending_brands: number;
 };
 
 export type AdminClub = {
@@ -887,6 +927,20 @@ export type Database = {
           },
         ];
       };
+      club_brand_approvals: {
+        Row: ClubBrandApproval;
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "club_brand_approvals_club_id_fkey";
+            columns: ["club_id"];
+            isOneToOne: false;
+            referencedRelation: "clubs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       users_extended: {
         Row: UserProfile;
         Insert: UserProfileInsert;
@@ -1026,6 +1080,30 @@ export type Database = {
       am_i_admin: {
         Args: Record<string, never>;
         Returns: boolean;
+      };
+      is_brand_approved_for_club: {
+        Args: { p_club: string; p_brand: string };
+        Returns: boolean;
+      };
+      admin_club_brand_approvals: {
+        Args: Record<string, never>;
+        Returns: AdminClubBrandApproval[];
+      };
+      admin_revoke_club_brand: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      admin_listings: {
+        Args: Record<string, never>;
+        Returns: AdminListing[];
+      };
+      admin_set_listing_active: {
+        Args: { p_id: string; p_active: boolean };
+        Returns: undefined;
+      };
+      club_dashboard_stats: {
+        Args: Record<string, never>;
+        Returns: ClubDashboardStats | null;
       };
       toggle_review_helpful: {
         Args: { p_review_id: string };

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { AlertTriangle, Inbox, RefreshCw, ShieldX, Tag } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, Inbox, PackageOpen, RefreshCw, ShieldX, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { formatPrice } from "@/lib/format";
+import { formatExpiry, formatPrice } from "@/lib/format";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,14 @@ import type {
   AdminBrandRequest,
   AdminBrandRevenue,
   AdminClub,
+  AdminClubBrandApproval,
   AdminGlobalBrand,
+  AdminListing,
   AdminOverview,
 } from "@/types/database";
 
 type BrandDecision = "one_time" | "global" | "reject";
-type TabId = "approvals" | "requests" | "clubs" | "revenue" | "brands";
+type TabId = "approvals" | "requests" | "listings" | "clubs" | "revenue" | "brands";
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -50,7 +52,14 @@ function BrandRequestRow({
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-bold">{request.club_name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-bold">{request.club_name}</p>
+            {request.held_listings > 0 && (
+              <Badge variant="neutral">
+                {request.held_listings} {request.held_listings === 1 ? "drop" : "drops"} waiting
+              </Badge>
+            )}
+          </div>
           <p className="mt-0.5 truncate text-xs text-ink-muted">
             {request.club_email} <span className="mx-1">/</span> requested {formatDay(request.created_at)}
           </p>
@@ -149,10 +158,68 @@ function ClubRow({
 const TABS: { id: TabId; label: string }[] = [
   { id: "approvals", label: "Approvals" },
   { id: "requests", label: "Brand requests" },
+  { id: "listings", label: "Listings" },
   { id: "clubs", label: "Clubs" },
   { id: "revenue", label: "Revenue" },
   { id: "brands", label: "Brands" },
 ];
+
+/** Moderation row: any listing on the platform, with hide/restore. */
+function AdminListingRow({
+  listing,
+  busy,
+  onSetActive,
+}: {
+  listing: AdminListing;
+  busy: boolean;
+  onSetActive: (active: boolean) => void;
+}) {
+  const expired = new Date(listing.expires_at).getTime() <= Date.now();
+  const held = listing.draft || listing.auto_post_on_brand;
+  const status = held
+    ? { variant: "neutral" as const, label: listing.draft ? "Draft" : "Posts on approval" }
+    : expired
+      ? { variant: "urgent" as const, label: "Ended" }
+      : listing.active
+        ? { variant: "success" as const, label: "Live" }
+        : { variant: "neutral" as const, label: "Hidden" };
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface-raised p-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="truncate text-base font-bold">{listing.title}</h3>
+          <Badge variant={status.variant}>{status.label}</Badge>
+        </div>
+        <p className="mt-0.5 truncate text-xs text-ink-muted">
+          {listing.brand} <span className="mx-1">/</span> {listing.club_name}
+          <span className="mx-1">/</span> {listing.orders} {listing.orders === 1 ? "order" : "orders"}
+          <span className="mx-1">/</span> ends {formatExpiry(listing.expires_at)}
+        </p>
+      </div>
+      {!held && (
+        <Button
+          variant={listing.active ? "secondary" : "primary"}
+          size="sm"
+          loading={busy}
+          onClick={() => onSetActive(!listing.active)}
+        >
+          {listing.active ? (
+            <>
+              <EyeOff className="size-3.5" aria-hidden="true" />
+              Hide
+            </>
+          ) : (
+            <>
+              <Eye className="size-3.5" aria-hidden="true" />
+              Restore
+            </>
+          )}
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export default function Admin() {
   const { user, isAdmin, loading: authLoading } = useAuth();
@@ -160,6 +227,8 @@ export default function Admin() {
   const [requests, setRequests] = useState<AdminBrandRequest[]>([]);
   const [clubs, setClubs] = useState<AdminClub[]>([]);
   const [brands, setBrands] = useState<AdminGlobalBrand[]>([]);
+  const [clubBrands, setClubBrands] = useState<AdminClubBrandApproval[]>([]);
+  const [allListings, setAllListings] = useState<AdminListing[]>([]);
   const [brandRevenue, setBrandRevenue] = useState<AdminBrandRevenue[]>([]);
   const [backendAdmin, setBackendAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -172,20 +241,24 @@ export default function Admin() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [ov, rq, cl, br, rev, me] = await Promise.all([
+    const [ov, rq, cl, br, cb, li, rev, me] = await Promise.all([
       supabase.rpc("admin_overview"),
       supabase.rpc("admin_brand_requests"),
       supabase.rpc("admin_clubs"),
       supabase.rpc("admin_global_brands"),
+      supabase.rpc("admin_club_brand_approvals"),
+      supabase.rpc("admin_listings"),
       supabase.rpc("admin_revenue_by_brand"),
       supabase.rpc("am_i_admin"),
     ]);
-    const firstError = ov.error || rq.error || cl.error || br.error || rev.error || me.error;
+    const firstError = ov.error || rq.error || cl.error || br.error || cb.error || li.error || rev.error || me.error;
     if (firstError) setError(firstError.message);
     setOverview((ov.data as AdminOverview | null) ?? null);
     setRequests((rq.data as unknown as AdminBrandRequest[]) ?? []);
     setClubs((cl.data as unknown as AdminClub[]) ?? []);
     setBrands((br.data as unknown as AdminGlobalBrand[]) ?? []);
+    setClubBrands((cb.data as unknown as AdminClubBrandApproval[]) ?? []);
+    setAllListings((li.data as unknown as AdminListing[]) ?? []);
     setBrandRevenue((rev.data as unknown as AdminBrandRevenue[]) ?? []);
     setBackendAdmin(me.error ? null : (me.data as boolean | null) ?? false);
     setLoading(false);
@@ -208,6 +281,16 @@ export default function Admin() {
         club.name.toLowerCase().includes(query) || club.email.toLowerCase().includes(query),
     );
   }, [clubs, search]);
+  const filteredListings = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return allListings;
+    return allListings.filter(
+      (listing) =>
+        listing.title.toLowerCase().includes(query) ||
+        listing.brand.toLowerCase().includes(query) ||
+        listing.club_name.toLowerCase().includes(query),
+    );
+  }, [allListings, search]);
 
   if (authLoading) {
     return (
@@ -297,9 +380,39 @@ export default function Admin() {
       action === "global"
         ? `"${name}" added for every club and in cravings.`
         : action === "one_time"
-          ? `"${name}" approved for that club; their drafts can now post.`
+          ? `"${name}" approved for that club. Their waiting drops post now, and they can reuse the brand any time.`
           : "Request rejected.",
     );
+    await load();
+  };
+
+  const setListingActive = async (id: string, active: boolean) => {
+    setBusyId(id);
+    const { error: rpcError } = await supabase.rpc("admin_set_listing_active", {
+      p_id: id,
+      p_active: active,
+    });
+    setBusyId(null);
+    if (rpcError) {
+      toast.error(rpcError.message);
+      return;
+    }
+    toast.success(active ? "Listing restored to the feed." : "Listing hidden from the feed.");
+    await load();
+  };
+
+  const revokeClubBrand = async (id: string, brand: string, clubName: string) => {
+    if (!window.confirm(`Revoke "${brand}" for ${clubName}? They won't be able to publish new drops with it.`)) {
+      return;
+    }
+    setBusyId(id);
+    const { error: rpcError } = await supabase.rpc("admin_revoke_club_brand", { p_id: id });
+    setBusyId(null);
+    if (rpcError) {
+      toast.error(rpcError.message);
+      return;
+    }
+    toast.success(`"${brand}" revoked for ${clubName}.`);
     await load();
   };
 
@@ -392,11 +505,13 @@ export default function Admin() {
               ? pendingClubs.length
               : id === "requests"
                 ? requests.length
-                : id === "clubs"
-                  ? clubs.length
-                  : id === "brands"
-                    ? brands.length
-                    : 0;
+                : id === "listings"
+                  ? allListings.filter((listing) => listing.active).length
+                  : id === "clubs"
+                    ? clubs.length
+                    : id === "brands"
+                      ? brands.length + clubBrands.length
+                      : 0;
           return (
             <button
               key={id}
@@ -456,8 +571,8 @@ export default function Admin() {
             <>
               <p className="mb-3 text-sm text-ink-muted">
                 Rename to fix spelling, then deploy to all (adds it everywhere, incl. cravings) or
-                approve once for that club. Approving publishes their post-on-approval drops and lets
-                them post their drafts.
+                approve once for that club. Either way their waiting drops publish and the club can
+                keep using the brand; one-time grants are listed (and revocable) under Brands.
               </p>
               <div className="space-y-3">
                 {requests.map((request) => (
@@ -471,6 +586,34 @@ export default function Admin() {
               </div>
             </>
           )
+        ) : tab === "listings" ? (
+          <>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by title, brand, or club"
+              aria-label="Search listings"
+              className="mb-3"
+            />
+            {filteredListings.length === 0 ? (
+              <EmptyState
+                icon={<PackageOpen className="size-6" aria-hidden="true" />}
+                title="No listings match"
+                body="Every drop on the platform shows here, newest first."
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredListings.map((listing) => (
+                  <AdminListingRow
+                    key={listing.id}
+                    listing={listing}
+                    busy={busyId === listing.id}
+                    onSetActive={(active) => void setListingActive(listing.id, active)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : tab === "clubs" ? (
           <>
             <Input
@@ -563,34 +706,74 @@ export default function Admin() {
               )}
             </div>
           </div>
-        ) : brands.length === 0 ? (
-          <EmptyState
-            icon={<Tag className="size-6" aria-hidden="true" />}
-            title="No global brands yet"
-            body="Brands you deploy to all clubs appear here. The built-in list lives in the app."
-          />
         ) : (
-          <div className="space-y-2">
-            {brands.map((brand) => (
-              <div
-                key={brand.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-raised p-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{brand.name}</p>
-                  <p className="text-xs text-ink-muted">added {formatDay(brand.created_at)}</p>
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-bold">Global brands (every club)</h3>
+              {brands.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">
+                  Brands you deploy to all clubs appear here. The built-in list lives in the app.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {brands.map((brand) => (
+                    <div
+                      key={brand.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-raised p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold">{brand.name}</p>
+                        <p className="text-xs text-ink-muted">added {formatDay(brand.created_at)}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={busyId === brand.id}
+                        className="text-accent"
+                        onClick={() => void removeBrand(brand.id, brand.name)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={busyId === brand.id}
-                  className="text-accent"
-                  onClick={() => void removeBrand(brand.id, brand.name)}
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-bold">One-time approvals (single club)</h3>
+              {clubBrands.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">
+                  "Approve once" grants show here. They let one club keep posting a brand without it
+                  joining the global list.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {clubBrands.map((grant) => (
+                    <div
+                      key={grant.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-raised p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold">{grant.brand}</p>
+                        <p className="truncate text-xs text-ink-muted">
+                          {grant.club_name} <span className="mx-1">/</span> approved{" "}
+                          {formatDay(grant.created_at)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={busyId === grant.id}
+                        className="text-accent"
+                        onClick={() => void revokeClubBrand(grant.id, grant.brand, grant.club_name)}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>

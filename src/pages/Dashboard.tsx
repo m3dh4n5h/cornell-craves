@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  BadgeCheck,
   BarChart3,
+  Copy,
   Hourglass,
   LayoutTemplate,
   PackageOpen,
   Plus,
   ReceiptText,
   ShieldQuestion,
+  Tag,
   Users,
   X,
 } from "lucide-react";
@@ -31,11 +34,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
+import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
 import { geocodeAddress } from "@/lib/geocode";
-import { formatExpiry } from "@/lib/format";
+import { formatExpiry, formatPrice } from "@/lib/format";
 import type {
+  BrandRequest,
   CampusLocation,
   Club,
+  ClubDashboardStats,
   ListingPickupSpot,
   ListingWithClub,
   OrderType,
@@ -377,8 +383,13 @@ function SpotsEditor({
 interface ListingFormProps {
   club: Club;
   initial: ListingWithClub | null;
+  /** Prefill a NEW listing from this one (Duplicate). Ignored when editing. */
+  duplicateOf?: ListingWithClub | null;
+  /** Brands approved one-time for this club, on top of the global list. */
+  approvedForClub: string[];
   locations: CampusLocation[];
   onLocationAdded: (location: CampusLocation) => void;
+  onBrandRequested: () => void;
   onSaved: () => void;
   onCancel: () => void;
 }
@@ -386,28 +397,33 @@ interface ListingFormProps {
 function ListingForm({
   club,
   initial,
+  duplicateOf = null,
+  approvedForClub,
   locations,
   onLocationAdded,
+  onBrandRequested,
   onSaved,
   onCancel,
 }: ListingFormProps) {
-  const [brand, setBrand] = useState(initial?.brand ?? "");
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(initial?.items ?? null));
-  const [pickupInfo, setPickupInfo] = useState(initial?.pickup_info ?? "");
+  // Editing uses the listing itself; duplicating copies its fields into a new one.
+  const source = initial ?? duplicateOf;
+  const [brand, setBrand] = useState(source?.brand ?? "");
+  const [title, setTitle] = useState(source?.title ?? "");
+  const [description, setDescription] = useState(source?.description ?? "");
+  const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(source?.items ?? null));
+  const [pickupInfo, setPickupInfo] = useState(source?.pickup_info ?? "");
   // Multiple pickup spots, each with its own order type (Batch 2 #2/#3/#5).
   const [spots, setSpots] = useState<SpotDraft[]>([]);
   const [originalSpots, setOriginalSpots] = useState<ListingPickupSpot[]>([]);
   // Contact email is per-listing and required on every drop (Batch 2 #1). On
   // edit it loads the existing value; on a new listing it starts blank.
-  const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
+  const [contactEmail, setContactEmail] = useState(source?.contact_email ?? "");
   // Show the "which member recommended you?" question on the order form (#2).
-  const [recommenderEnabled, setRecommenderEnabled] = useState(initial?.recommender_enabled ?? false);
+  const [recommenderEnabled, setRecommenderEnabled] = useState(source?.recommender_enabled ?? false);
   // Optional cause + percentage of earnings donated (build spec 5 #9).
-  const [causeName, setCauseName] = useState(initial?.cause_name ?? "");
+  const [causeName, setCauseName] = useState(source?.cause_name ?? "");
   const [causePercent, setCausePercent] = useState(
-    initial?.cause_percent != null ? String(initial.cause_percent) : "",
+    source?.cause_percent != null ? String(source.cause_percent) : "",
   );
   const [expiresAt, setExpiresAt] = useState(
     initial
@@ -653,7 +669,7 @@ function ListingForm({
     // Held-back brands need an admin request on file so it can be approved.
     if (mode !== "publish") {
       await supabase.rpc("request_brand", { p_name: brand.trim() }).then(
-        () => {},
+        () => onBrandRequested(),
         () => {},
       );
     }
@@ -679,6 +695,11 @@ function ListingForm({
   const isKnownBrand = brandOptions.some(
     (option) => option.toLowerCase() === trimmedBrand.toLowerCase(),
   );
+  // Postable = in the global list OR approved one-time for THIS club (040).
+  // This is what fixes the old "approve once did nothing next time" loop: a
+  // one-time approval now unlocks the brand for every future drop the club posts.
+  const isPostable = isKnownBrand || brandInList(trimmedBrand, approvedForClub);
+  const approvedJustForClub = isPostable && !isKnownBrand;
   const brandRequested = requestedBrands.some(
     (name) => name.toLowerCase() === trimmedBrand.toLowerCase(),
   );
@@ -692,6 +713,7 @@ function ListingForm({
       return;
     }
     setRequestedBrands((previous) => [...previous, trimmedBrand]);
+    onBrandRequested();
     toast.success("Brand requested. An admin will review adding it to the list.");
   };
 
@@ -701,12 +723,20 @@ function ListingForm({
         event.preventDefault();
         // Enter submits only when the brand is approved; otherwise the club
         // picks draft vs auto-post explicitly below.
-        if (isKnownBrand) void handleSubmit("publish");
+        if (isPostable) void handleSubmit("publish");
       }}
       noValidate
       className="rounded-2xl border border-border bg-surface-raised p-5"
     >
-      <h2 className="text-lg font-bold">{initial ? "Edit listing" : "New listing"}</h2>
+      <h2 className="text-lg font-bold">
+        {initial ? "Edit listing" : duplicateOf ? `New listing (copied from "${duplicateOf.title}")` : "New listing"}
+      </h2>
+      {duplicateOf && (
+        <p className="mt-1 text-xs text-ink-muted">
+          Items, prices, and details copied over. Pickup slots and spots start fresh; set a new end
+          time below.
+        </p>
+      )}
 
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <div>
@@ -725,11 +755,17 @@ function ListingForm({
             ))}
           </datalist>
           <FieldError message={showErrors ? errors.brand : undefined} />
-          {trimmedBrand.length >= 2 && !isKnownBrand && (
+          {approvedJustForClub && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary-dark">
+              <BadgeCheck className="size-3.5" aria-hidden="true" />
+              Approved for your club. You can publish this brand any time.
+            </p>
+          )}
+          {trimmedBrand.length >= 2 && !isPostable && (
             <div className="mt-1.5 text-xs text-ink-muted">
               {brandRequested ? (
                 <span className="font-medium text-primary-dark">
-                  Requested. You can still post with this brand now.
+                  Requested. Save below and it's queued for admin review.
                 </span>
               ) : (
                 <>
@@ -908,10 +944,12 @@ function ListingForm({
         </label>
       </div>
 
-      {trimmedBrand && !isKnownBrand && (
+      {trimmedBrand && !isPostable && (
         <p className="mt-6 rounded-xl bg-primary/15 p-3 text-xs text-ink">
           "{trimmedBrand}" needs admin approval before it can go live. Save it as a draft, or have
           it post automatically once the brand is approved.
+          {initial?.active &&
+            " Heads up: this listing is currently live; saving with an unapproved brand takes it off the feed until approval."}
         </p>
       )}
 
@@ -919,7 +957,7 @@ function ListingForm({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        {isKnownBrand ? (
+        {isPostable ? (
           <Button type="button" loading={submitting} onClick={() => void handleSubmit("publish")}>
             {initial ? "Save changes" : "Publish drop"}
           </Button>
@@ -948,7 +986,9 @@ function ListingRow({
   busy,
   canPost,
   onEdit,
+  onDuplicate,
   onToggleActive,
+  onEndNow,
   onPost,
   onDelete,
 }: {
@@ -956,14 +996,19 @@ function ListingRow({
   busy: boolean;
   canPost: boolean;
   onEdit: () => void;
+  onDuplicate: () => void;
   onToggleActive: () => void;
+  onEndNow: () => void;
   onPost: () => void;
   onDelete: () => void;
 }) {
   const timeLeft = useCountdown(listing.expires_at);
   const held = listing.draft || listing.auto_post_on_brand;
+  const live = listing.active && !timeLeft.expired && !held;
   const status = listing.draft
-    ? { variant: "neutral" as const, label: "Draft" }
+    ? canPost
+      ? { variant: "success" as const, label: "Approved, ready to post" }
+      : { variant: "neutral" as const, label: "Draft, awaiting brand" }
     : listing.auto_post_on_brand
       ? { variant: "neutral" as const, label: "Posts on approval" }
       : timeLeft.expired
@@ -985,7 +1030,7 @@ function ListingRow({
             `, rated ${Number(listing.avg_rating).toFixed(1)} (${listing.review_count})`}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         {canPost && (
           <Button size="sm" loading={busy} onClick={onPost}>
             Post now
@@ -994,9 +1039,23 @@ function ListingRow({
         <Button variant="secondary" size="sm" onClick={onEdit}>
           Edit
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDuplicate}
+          aria-label={`Duplicate ${listing.title}`}
+        >
+          <Copy className="size-3.5" aria-hidden="true" />
+          Duplicate
+        </Button>
         {!held && (
           <Button variant="ghost" size="sm" loading={busy} onClick={onToggleActive}>
             {listing.active ? "Deactivate" : "Reactivate"}
+          </Button>
+        )}
+        {live && (
+          <Button variant="ghost" size="sm" loading={busy} onClick={onEndNow} className="text-accent">
+            End now
           </Button>
         )}
         {held && (
@@ -1006,6 +1065,74 @@ function ListingRow({
         )}
       </div>
     </div>
+  );
+}
+
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-surface-raised p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+      <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
+    </div>
+  );
+}
+
+/** The club's private brand situation: what's approved for them, what's waiting. */
+function BrandStatusPanel({
+  approvedForClub,
+  requests,
+}: {
+  approvedForClub: string[];
+  requests: BrandRequest[];
+}) {
+  const pending = requests.filter((request) => request.status === "pending");
+  const rejected = requests.filter((request) => request.status === "rejected").slice(0, 3);
+  if (approvedForClub.length === 0 && pending.length === 0 && rejected.length === 0) return null;
+
+  return (
+    <section className="mt-6 rounded-2xl border border-border bg-surface-raised p-4">
+      <h2 className="flex items-center gap-2 text-sm font-bold">
+        <Tag className="size-4 text-primary-dark" aria-hidden="true" />
+        Your brands
+      </h2>
+      {approvedForClub.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Approved for your club
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {approvedForClub.map((name) => (
+              <Badge key={name} variant="success">
+                <BadgeCheck className="size-3" aria-hidden="true" />
+                {name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Waiting on admin
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {pending.map((request) => (
+              <Badge key={request.id} variant="neutral">
+                <Hourglass className="size-3" aria-hidden="true" />
+                {request.requested_name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      {rejected.length > 0 && (
+        <p className="mt-3 text-xs text-ink-muted">
+          Not approved: {rejected.map((request) => request.requested_name).join(", ")}. You can
+          re-request from the listing form if things change.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -1032,13 +1159,31 @@ export default function Dashboard() {
   } = useListings({ clubId: user?.id, enabled: Boolean(user) });
   const reduceMotion = useReducedMotion();
   const brandOptions = useBrandOptions();
+  const {
+    approvedForClub,
+    requests: brandRequests,
+    refetch: refetchBrands,
+  } = useClubBrandStatus(user?.id);
 
   // "create" opens an empty form; a listing id opens that listing for editing.
   const [formMode, setFormMode] = useState<"closed" | "create" | string>("closed");
+  // When set (and formMode is "create"), the form prefills from this listing.
+  const [duplicateOf, setDuplicateOf] = useState<ListingWithClub | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [locations, setLocations] = useState<CampusLocation[]>([]);
+  const [stats, setStats] = useState<ClubDashboardStats | null>(null);
 
   const userId = user?.id ?? null;
+
+  const refetchStats = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase.rpc("club_dashboard_stats");
+    setStats((data as ClubDashboardStats | null) ?? null);
+  }, [userId]);
+
+  useEffect(() => {
+    void refetchStats();
+  }, [refetchStats]);
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -1105,11 +1250,13 @@ export default function Dashboard() {
       : null;
 
   const brandApproved = (brandName: string) =>
-    brandOptions.some((option) => option.toLowerCase() === brandName.trim().toLowerCase());
+    brandOptions.some((option) => option.toLowerCase() === brandName.trim().toLowerCase()) ||
+    brandInList(brandName, approvedForClub);
 
-  // A draft can be posted when its CURRENT brand is globally approved, or matches
-  // the exact brand the admin approved for this listing. Changing the brand to
-  // anything else drops authorization, forcing it back through approval.
+  // A draft can be posted when its CURRENT brand is approved: globally, one-time
+  // for this club (durable since migration 040), or tagged on the listing by an
+  // admin decision. Changing the brand to anything else drops authorization -
+  // and the database trigger enforces the same rule server-side.
   const canPostDraft = (listing: ListingWithClub) =>
     listing.draft &&
     (brandApproved(listing.brand) ||
@@ -1126,8 +1273,29 @@ export default function Dashboard() {
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success("Draft published. It's live on the feed.");
-      await refetch();
+      if (new Date(listing.expires_at).getTime() <= Date.now()) {
+        toast.warning("Posted, but the end time already passed. Edit it to set a new end time.");
+      } else {
+        toast.success("Draft published. It's live on the feed.");
+      }
+      await Promise.all([refetch(), refetchStats()]);
+    }
+    setBusyId(null);
+  };
+
+  // Sold out or done early? End the drop on the spot (expiry = now).
+  const endNow = async (listing: ListingWithClub) => {
+    if (!window.confirm(`End "${listing.title}" now? It leaves the feed immediately.`)) return;
+    setBusyId(listing.id);
+    const { error } = await supabase
+      .from("listings")
+      .update({ expires_at: new Date().toISOString() })
+      .eq("id", listing.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Drop ended. Buyers with open orders can still pick up.");
+      await Promise.all([refetch(), refetchStats()]);
     }
     setBusyId(null);
   };
@@ -1168,12 +1336,38 @@ export default function Dashboard() {
           <p className="mt-1 text-sm text-ink-muted">Manage your fundraiser drops.</p>
         </div>
         {formMode === "closed" && (
-          <Button onClick={() => setFormMode("create")}>
+          <Button
+            onClick={() => {
+              setDuplicateOf(null);
+              setFormMode("create");
+            }}
+          >
             <Plus className="size-4" aria-hidden="true" />
             New listing
           </Button>
         )}
       </div>
+
+      {stats && (
+        <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <StatCard label="Revenue" value={formatPrice(Number(stats.revenue))} sub="verified payments" />
+          <StatCard
+            label="To verify"
+            value={String(stats.orders_pending)}
+            sub={stats.orders_pending > 0 ? "orders awaiting payment check" : "all orders verified"}
+          />
+          <StatCard
+            label="Live drops"
+            value={String(stats.live_drops)}
+            sub={stats.held_drops > 0 ? `${stats.held_drops} held for brand approval` : undefined}
+          />
+          <StatCard
+            label="Reservations"
+            value={String(stats.upcoming_reservations)}
+            sub="upcoming pickups"
+          />
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Link to={`/club/${club.id}/orders-dashboard`}>
@@ -1205,7 +1399,7 @@ export default function Dashboard() {
       <AnimatePresence mode="wait">
         {formMode !== "closed" && (
           <motion.div
-            key={formMode}
+            key={formMode === "create" && duplicateOf ? `dup-${duplicateOf.id}` : formMode}
             initial={reduceMotion ? false : { opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.1 } }}
@@ -1215,17 +1409,27 @@ export default function Dashboard() {
             <ListingForm
               club={club}
               initial={editingListing}
+              duplicateOf={formMode === "create" ? duplicateOf : null}
+              approvedForClub={approvedForClub}
               locations={locations}
               onLocationAdded={addLocation}
+              onBrandRequested={() => void refetchBrands()}
               onSaved={() => {
                 setFormMode("closed");
+                setDuplicateOf(null);
                 void refetch();
+                void refetchStats();
               }}
-              onCancel={() => setFormMode("closed")}
+              onCancel={() => {
+                setFormMode("closed");
+                setDuplicateOf(null);
+              }}
             />
           </motion.div>
         )}
       </AnimatePresence>
+
+      <BrandStatusPanel approvedForClub={approvedForClub} requests={brandRequests} />
 
       <section className="mt-8">
         <h2 className="text-lg font-bold">Your listings</h2>
@@ -1253,8 +1457,17 @@ export default function Dashboard() {
                 listing={listing}
                 busy={busyId === listing.id}
                 canPost={canPostDraft(listing)}
-                onEdit={() => setFormMode(listing.id)}
+                onEdit={() => {
+                  setDuplicateOf(null);
+                  setFormMode(listing.id);
+                }}
+                onDuplicate={() => {
+                  setDuplicateOf(listing);
+                  setFormMode("create");
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
                 onToggleActive={() => void toggleActive(listing)}
+                onEndNow={() => void endNow(listing)}
                 onPost={() => void publishDraft(listing)}
                 onDelete={() => void deleteDraft(listing)}
               />

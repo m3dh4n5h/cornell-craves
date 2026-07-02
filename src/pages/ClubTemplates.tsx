@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { BRANDS } from "@/lib/brands";
+import { useBrandOptions } from "@/hooks/useBrands";
+import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
 import { cn } from "@/lib/utils";
 import type { CampusLocation, RecurringTemplate } from "@/types/database";
 
@@ -254,6 +256,17 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
   const [locationId, setLocationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Same publish gate as the dashboard form: global brands plus this club's
+  // one-time approvals. Unapproved brands are held instead of silently posted
+  // (the launch path used to skip the gate entirely - the database now also
+  // blocks it, so we hold the listing and file the request up front).
+  const brandOptions = useBrandOptions();
+  const { approvedForClub } = useClubBrandStatus(template.club_id);
+  const trimmedBrand = brand.trim();
+  const isPostable =
+    brandOptions.some((option) => option.toLowerCase() === trimmedBrand.toLowerCase()) ||
+    brandInList(trimmedBrand, approvedForClub);
+
   const post = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim() || !brand.trim() || parseItemDrafts(items).length === 0) {
@@ -273,11 +286,19 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
       items: parseItemDrafts(items),
       pickup_location_id: locationId || null,
       expires_at: new Date(expiresAt).toISOString(),
+      active: isPostable,
+      draft: !isPostable,
     });
     if (error) {
       setSubmitting(false);
       toast.error(error.message);
       return;
+    }
+    if (!isPostable) {
+      await supabase.rpc("request_brand", { p_name: brand.trim() }).then(
+        () => {},
+        () => {},
+      );
     }
     if (template.mode === "auto") {
       await supabase
@@ -286,7 +307,13 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
         .eq("id", template.id);
     }
     setSubmitting(false);
-    toast.success(`"${title.trim()}" is live on the feed`);
+    if (isPostable) {
+      toast.success(`"${title.trim()}" is live on the feed`);
+    } else {
+      toast.info(
+        `"${trimmedBrand}" needs admin approval first. Saved as a draft on your dashboard and the request is filed.`,
+      );
+    }
     onPosted();
   };
 
@@ -345,12 +372,18 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
           </select>
         </div>
       </div>
+      {trimmedBrand.length >= 2 && !isPostable && (
+        <p className="mt-4 rounded-xl bg-primary/15 p-3 text-xs text-ink">
+          "{trimmedBrand}" isn't approved yet, so this saves as a draft on your dashboard and files
+          the brand request for admin review.
+        </p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button type="submit" size="sm" loading={submitting}>
-          Publish drop
+          {isPostable ? "Publish drop" : "Save & request brand"}
         </Button>
       </div>
     </form>
