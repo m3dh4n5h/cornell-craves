@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 interface VenmoButtonProps {
   handle: string | null;
   note: string;
+  /** Pre-fills the payment amount in the Venmo app deep link. */
+  amount?: number;
   disabled?: boolean;
 }
 
-export function VenmoButton({ handle, note, disabled = false }: VenmoButtonProps) {
+export function VenmoButton({ handle, note, amount, disabled = false }: VenmoButtonProps) {
   if (!handle) {
     return (
       <Button size="lg" className="w-full" disabled>
@@ -25,7 +27,7 @@ export function VenmoButton({ handle, note, disabled = false }: VenmoButtonProps
         size="lg"
         className="w-full"
         disabled={disabled}
-        onClick={() => openVenmo(handle, note)}
+        onClick={() => openVenmo(handle, note, amount)}
       >
         Pay with Venmo
         <ArrowUpRight className="size-4" aria-hidden="true" />

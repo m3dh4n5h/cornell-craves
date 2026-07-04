@@ -253,6 +253,8 @@ export default function ClubOrders() {
   const [groupBusyId, setGroupBusyId] = useState<string | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  // Export menu: the club picks one fundraiser or all of them.
+  const [exportOpen, setExportOpen] = useState(false);
   // Listing sections are collapsible (#15); a listing id in this set is closed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -404,11 +406,16 @@ export default function ClubOrders() {
     await refetch();
   };
 
-  const exportCsv = () => {
+  // Export is scoped by the club's explicit choice: one fundraiser or all of
+  // them. It always includes every status so the sheet reconciles cleanly.
+  const exportCsv = (scopeListingId: string | null) => {
+    const scoped = scopeListingId
+      ? orders.filter((order) => order.listing_id === scopeListingId)
+      : orders;
     const listingTitle = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
     // One column per distinct item name; each row holds that person's quantity (#17).
     const itemNames = [
-      ...new Set(filtered.flatMap((order) => (order.items_json ?? []).map((line) => line.name))),
+      ...new Set(scoped.flatMap((order) => (order.items_json ?? []).map((line) => line.name))),
     ].sort((a, b) => a.localeCompare(b));
     const baseHeaders = [
       "name",
@@ -424,7 +431,7 @@ export default function ClubOrders() {
       "picked_up_at",
     ];
     const header = [...baseHeaders, ...itemNames].map(csvEscape).join(",");
-    const rows = filtered.map((order) => {
+    const rows = scoped.map((order) => {
       const qtyByName = new Map<string, number>();
       for (const line of order.items_json ?? []) {
         qtyByName.set(line.name, (qtyByName.get(line.name) ?? 0) + Number(line.qty));
@@ -458,9 +465,21 @@ export default function ClubOrders() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "cornell-craves-orders.csv";
+    const scopeSlug = scopeListingId
+      ? listingTitle(scopeListingId)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "fundraiser"
+      : "all-fundraisers";
+    anchor.download = `cornell-craves-orders-${scopeSlug}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
+    setExportOpen(false);
+    toast.success(
+      scopeListingId
+        ? `Exported ${scoped.length} ${scoped.length === 1 ? "order" : "orders"} for "${listingTitle(scopeListingId)}".`
+        : `Exported all ${scoped.length} ${scoped.length === 1 ? "order" : "orders"}.`,
+    );
   };
 
   return (
@@ -476,10 +495,68 @@ export default function ClubOrders() {
             Verify payments to send QR passes, scan them at pickup.
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={exportCsv} disabled={filtered.length === 0}>
-          <Download className="size-3.5" aria-hidden="true" />
-          Export CSV
-        </Button>
+        <div className="relative">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setExportOpen((open) => !open)}
+            disabled={orders.length === 0}
+            aria-expanded={exportOpen}
+            aria-haspopup="menu"
+          >
+            <Download className="size-3.5" aria-hidden="true" />
+            Export CSV
+            <ChevronDown
+              className={cn("size-3.5 transition-transform duration-150", exportOpen && "rotate-180")}
+              aria-hidden="true"
+            />
+          </Button>
+          {exportOpen && (
+            <>
+              <button
+                type="button"
+                aria-label="Close export menu"
+                className="fixed inset-0 z-raised cursor-default"
+                onClick={() => setExportOpen(false)}
+              />
+              <div
+                role="menu"
+                aria-label="Choose what to export"
+                className="absolute left-0 z-modal mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface-raised py-1.5 shadow-[0_12px_40px_oklch(18%_0.02_260/0.2)] sm:left-auto sm:right-0"
+              >
+                <p className="px-3.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                  Export orders for
+                </p>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => exportCsv(null)}
+                  className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-semibold hover-fine:bg-ink/[0.04]"
+                >
+                  All fundraisers
+                  <span className="shrink-0 font-mono text-xs font-normal text-ink-muted">
+                    {orders.length}
+                  </span>
+                </button>
+                {listingsWithOrders.map((listing) => {
+                  const count = orders.filter((order) => order.listing_id === listing.id).length;
+                  return (
+                    <button
+                      key={listing.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => exportCsv(listing.id)}
+                      className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover-fine:bg-ink/[0.04]"
+                    >
+                      <span className="min-w-0 truncate">{listing.title}</span>
+                      <span className="shrink-0 font-mono text-xs text-ink-muted">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Scanner + result */}

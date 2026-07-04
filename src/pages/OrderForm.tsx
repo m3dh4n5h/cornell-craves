@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Minus, Plus, SearchX } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Copy, Minus, Plus, SearchX } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useListing } from "@/hooks/useListings";
@@ -12,6 +12,7 @@ import { isCornellEmail } from "@/lib/identity";
 import { formatPrice } from "@/lib/format";
 import { isValidNetid } from "@/lib/orders";
 import { AllergenIcon } from "@/components/AllergenIcon";
+import { VenmoButton } from "@/components/VenmoButton";
 import { SplitOrderToggle } from "@/components/SplitOrderToggle";
 import { SplitTypeSelector, validSplitSizes } from "@/components/SplitTypeSelector";
 import { GroupInviteLink } from "@/components/GroupInviteLink";
@@ -376,6 +377,18 @@ export default function OrderForm() {
   }
 
   if (placedId) {
+    const clubVenmo = listing.clubs?.venmo ?? null;
+    const clubZelle = listing.clubs?.zelle_phone ?? null;
+    const payNote = `Cornell Craves: ${listing.title}`;
+    const copyZelle = async () => {
+      if (!clubZelle) return;
+      try {
+        await navigator.clipboard.writeText(clubZelle);
+        toast.success("Zelle number copied");
+      } catch {
+        toast.error("Could not copy, long-press the number instead");
+      }
+    };
     return (
       <div className="mx-auto w-full max-w-md px-4 py-16">
         <motion.div
@@ -393,6 +406,30 @@ export default function OrderForm() {
             {payMethod === "both" ? "Venmo or Zelle" : payMethod === "venmo" ? "Venmo" : "Zelle"}.
             Once they verify your payment, your QR pickup pass lands in {email.trim().toLowerCase()}.
           </p>
+
+          {/* Pay right here, right now: no hunting for the club's handle. */}
+          {(payMethod === "venmo" || payMethod === "both") && clubVenmo && (
+            <div className="mt-5">
+              <VenmoButton handle={clubVenmo} note={payNote} amount={total} />
+            </div>
+          )}
+          {(payMethod === "zelle" || payMethod === "both") && clubZelle && (
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl bg-surface px-3 py-2.5">
+              <p className="min-w-0 truncate text-left text-sm text-ink-muted">
+                Zelle <span className="ml-1 font-mono text-ink">{clubZelle}</span>
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void copyZelle()}
+                aria-label="Copy Zelle number"
+                className="shrink-0 px-2.5 text-ink-muted"
+              >
+                <Copy className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          )}
+
           <p className="mt-3 rounded-xl bg-primary/15 px-3 py-2.5 text-xs text-ink">
             Your pass also shows up right here on the website. Open your{" "}
             <span className="font-semibold">Orders</span> page once the club approves your payment,

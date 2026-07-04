@@ -6,16 +6,19 @@ function cleanHandle(handle: string): string {
   return handle.trim().replace(/^@/, "");
 }
 
-export function venmoUrl(handle: string, note: string): string {
+export function venmoUrl(handle: string, note: string, amount?: number): string {
   const recipient = cleanHandle(handle);
   if (isMobileDevice()) {
-    return `venmo://payto?recipients=${encodeURIComponent(recipient)}&note=${encodeURIComponent(note)}`;
+    // The app deep link supports pre-filling the amount; the web profile does not.
+    const amountParam =
+      amount && amount > 0 ? `&amount=${encodeURIComponent(amount.toFixed(2))}` : "";
+    return `venmo://payto?recipients=${encodeURIComponent(recipient)}&note=${encodeURIComponent(note)}${amountParam}`;
   }
   return `https://venmo.com/${encodeURIComponent(recipient)}`;
 }
 
-export function openVenmo(handle: string, note: string): void {
-  const url = venmoUrl(handle, note);
+export function openVenmo(handle: string, note: string, amount?: number): void {
+  const url = venmoUrl(handle, note, amount);
   if (isMobileDevice()) {
     window.location.href = url;
   } else {

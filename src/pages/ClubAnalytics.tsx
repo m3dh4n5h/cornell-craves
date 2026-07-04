@@ -15,13 +15,15 @@ import { RatingStars } from "@/components/RatingStars";
 import { DIETARY_TAGS, isDietaryTagId } from "@/lib/dietary";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { GroupDetails, Listing, OrderItem, QAEntry } from "@/types/database";
+import type { DietaryTagId, GroupDetails, Listing, OrderItem } from "@/types/database";
 
-/** Only verified payments count toward money figures (Tranche 4 #1). */
+/** Only verified payments count toward money figures (Tranche 4 #1). All-time
+ * fetch: new-vs-returning buyers needs each buyer's first-ever order. */
 interface VerifiedOrder {
   listing_id: string;
   total: number;
   items_json: OrderItem[];
+  orderer_name: string;
   orderer_email: string;
   recommended_by: string | null;
   created_at: string;
@@ -41,7 +43,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
+      <p className="mt-1 break-words font-display text-xl font-extrabold sm:text-2xl">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
     </div>
   );
@@ -68,7 +70,6 @@ export default function ClubAnalytics() {
   const [views, setViews] = useState<ViewRow[]>([]);
   const [groups, setGroups] = useState<GroupDetails[]>([]);
   const [listings, setListings] = useState<ListingLite[]>([]);
-  const [qaEntries, setQaEntries] = useState<Pick<QAEntry, "listing_id" | "created_at" | "response_date">[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<7 | 30>(30);
 
@@ -79,7 +80,7 @@ export default function ClubAnalytics() {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      const cutoff = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+      const viewCutoff = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
 
       const listingsResult = await supabase
         .from("listings")
@@ -90,31 +91,31 @@ export default function ClubAnalytics() {
       const ownListings = (listingsResult.data as ListingLite[] | null) ?? [];
       const ids = ownListings.map((listing) => listing.id);
 
-      const [ordersResult, viewsResult, qaResult, groupsResult] =
+      const [ordersResult, viewsResult, groupsResult] =
         ids.length > 0
           ? await Promise.all([
+              // All-time, so repeat/new-vs-returning buyers compute correctly.
               supabase
                 .from("orders")
-                .select("listing_id, total, items_json, orderer_email, recommended_by, created_at")
+                .select(
+                  "listing_id, total, items_json, orderer_name, orderer_email, recommended_by, created_at",
+                )
                 .in("listing_id", ids)
-                .eq("payment_verified", true)
-                .gte("created_at", cutoff),
+                .eq("payment_verified", true),
               supabase
                 .from("analytics_events")
                 .select("listing_id, created_at")
                 .eq("club_id", userId)
                 .eq("event_type", "view")
-                .gte("created_at", cutoff),
-              supabase.from("qa").select("listing_id, created_at, response_date").in("listing_id", ids),
+                .gte("created_at", viewCutoff),
               supabase.rpc("get_club_groups"),
             ])
-          : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+          : [{ data: [] }, { data: [] }, { data: [] }];
       if (cancelled) return;
 
       setListings(ownListings);
       setOrders((ordersResult.data as VerifiedOrder[] | null) ?? []);
       setViews((viewsResult.data as ViewRow[] | null) ?? []);
-      setQaEntries(qaResult.data ?? []);
       setGroups(((groupsResult.data as unknown as GroupDetails[]) ?? []).filter(Boolean));
       setLoading(false);
     };
@@ -133,11 +134,27 @@ export default function ClubAnalytics() {
 
     const soloRevenue = inRange.reduce((sum, order) => sum + Number(order.total), 0);
 
-    // Unique buyers + group revenue + per-item + per-listing all in one pass.
+    // Item name -> dietary tags, per listing, so "what buyers pick" reflects
+    // what actually sold rather than how the club tagged its menu.
+    const tagsByListingItem = new Map<string, DietaryTagId[]>();
+    for (const listing of listings) {
+      for (const item of listing.items ?? []) {
+        tagsByListingItem.set(
+          `${listing.id}::${item.name}`,
+          (item.dietary_tags ?? []).filter(isDietaryTagId),
+        );
+      }
+    }
+
+    // Unique buyers + group revenue + per-item + per-listing + buyer spend,
+    // all in one pass over in-range activity.
     const buyers = new Set<string>();
     const itemAgg = new Map<string, { units: number; revenue: number }>();
     const byListing = new Map<string, { revenue: number; orders: number }>();
     const recommenders = new Map<string, number>();
+    const buyerAgg = new Map<string, { name: string; orders: number; spend: number }>();
+    const tagUnits = new Map<DietaryTagId, number>();
+    let unitsInRange = 0;
 
     const bumpItem = (name: string, units: number, revenue: number) => {
       const entry = itemAgg.get(name) ?? { units: 0, revenue: 0 };
@@ -151,32 +168,81 @@ export default function ClubAnalytics() {
       entry.orders += orders;
       byListing.set(id, entry);
     };
+    const bumpBuyer = (key: string, name: string, spend: number) => {
+      const entry = buyerAgg.get(key) ?? { name, orders: 0, spend: 0 };
+      entry.orders += 1;
+      entry.spend += spend;
+      buyerAgg.set(key, entry);
+    };
+    const bumpTags = (listingId: string, itemName: string, units: number) => {
+      for (const tag of tagsByListingItem.get(`${listingId}::${itemName}`) ?? []) {
+        tagUnits.set(tag, (tagUnits.get(tag) ?? 0) + units);
+      }
+    };
 
     for (const order of inRange) {
-      buyers.add(`email:${order.orderer_email.toLowerCase()}`);
+      const key = `email:${order.orderer_email.toLowerCase()}`;
+      buyers.add(key);
+      bumpBuyer(key, order.orderer_name, Number(order.total));
       bumpListing(order.listing_id, Number(order.total), 1);
       for (const line of order.items_json ?? []) {
         bumpItem(line.name, Number(line.qty), Number(line.price) * Number(line.qty));
+        bumpTags(order.listing_id, line.name, Number(line.qty));
+        unitsInRange += Number(line.qty);
       }
       const ref = order.recommended_by?.trim();
       if (ref) recommenders.set(ref, (recommenders.get(ref) ?? 0) + Number(order.total));
     }
 
     let groupRevenue = 0;
+    let groupShareCount = 0;
     for (const group of groupsInRange) {
       const perPerson = group.units_per_person ?? Math.floor(group.item_quantity / Math.max(group.total_people, 1));
       for (const member of group.members) {
         if (member.status !== "paid") continue;
+        const key = `uid:${member.user_id}`;
         groupRevenue += Number(group.share_amount);
-        buyers.add(`uid:${member.user_id}`);
+        groupShareCount += 1;
+        buyers.add(key);
+        bumpBuyer(key, member.name, Number(group.share_amount));
         bumpListing(group.listing_id, Number(group.share_amount), 1);
         bumpItem(group.item_name, perPerson, Number(group.share_amount));
+        bumpTags(group.listing_id, group.item_name, perPerson);
+        unitsInRange += perPerson;
       }
     }
 
     const totalRevenue = soloRevenue + groupRevenue;
     const orderCount = inRange.length;
     const avgOrderValue = orderCount > 0 ? soloRevenue / orderCount : 0;
+    const avgUnitsPerOrder =
+      orderCount + groupShareCount > 0 ? unitsInRange / (orderCount + groupShareCount) : 0;
+
+    // First-ever order per buyer (all-time): active buyers whose history starts
+    // before the window are returning; the rest are new this window.
+    const firstSeen = new Map<string, number>();
+    const noteFirst = (key: string, at: number) => {
+      const previous = firstSeen.get(key);
+      if (previous === undefined || at < previous) firstSeen.set(key, at);
+    };
+    for (const order of orders) {
+      noteFirst(`email:${order.orderer_email.toLowerCase()}`, new Date(order.created_at).getTime());
+    }
+    for (const group of groups) {
+      for (const member of group.members) {
+        if (member.status !== "paid") continue;
+        noteFirst(`uid:${member.user_id}`, new Date(group.created_at).getTime());
+      }
+    }
+    let returningBuyers = 0;
+    for (const key of buyers) {
+      if ((firstSeen.get(key) ?? Number.POSITIVE_INFINITY) < cutoff) returningBuyers += 1;
+    }
+    const newBuyers = buyers.size - returningBuyers;
+
+    // Views -> orders: how much of the browsing actually converts to money.
+    const orderEvents = orderCount + groupShareCount;
+    const conversion = viewsInRange.length > 0 ? orderEvents / viewsInRange.length : null;
 
     // Each unit ordered is one box, so units sold == boxes sold (no fraction).
     const items = [...itemAgg.entries()]
@@ -190,6 +256,10 @@ export default function ClubAnalytics() {
     const leaderboard = [...recommenders.entries()]
       .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
       .sort((a, b) => b.value - a.value);
+
+    const topBuyers = [...buyerAgg.values()]
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 5);
 
     // Daily revenue trend (solo orders + paid group shares by created_at).
     const revenueByDay = new Map<number, number>();
@@ -232,26 +302,8 @@ export default function ClubAnalytics() {
         ? rated.reduce((sum, listing) => sum + Number(listing.avg_rating) * listing.review_count, 0) / reviewCount
         : null;
 
-    const answered = qaEntries.filter((entry) => entry.response_date);
-    const avgResponseHours =
-      answered.length > 0
-        ? answered.reduce(
-            (sum, entry) =>
-              sum + (new Date(entry.response_date!).getTime() - new Date(entry.created_at).getTime()) / 3_600_000,
-            0,
-          ) / answered.length
-        : null;
-
-    const tagCounts = new Map<string, number>();
-    for (const listing of listings) {
-      for (const item of listing.items ?? []) {
-        for (const tag of item.dietary_tags ?? []) {
-          if (isDietaryTagId(tag)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-        }
-      }
-    }
-    const dietary = [...tagCounts.entries()]
-      .map(([tag, count]) => ({ name: DIETARY_TAGS[tag as keyof typeof DIETARY_TAGS].label, count }))
+    const dietaryDemand = [...tagUnits.entries()]
+      .map(([tag, units]) => ({ name: DIETARY_TAGS[tag].label, count: units }))
       .sort((a, b) => b.count - a.count);
 
     const viewsByListing = new Map<string, number>();
@@ -260,12 +312,17 @@ export default function ClubAnalytics() {
     }
 
     const perListing = listings
-      .map((listing) => ({
-        listing,
-        revenue: byListing.get(listing.id)?.revenue ?? 0,
-        orders: byListing.get(listing.id)?.orders ?? 0,
-        views: viewsByListing.get(listing.id) ?? 0,
-      }))
+      .map((listing) => {
+        const listingViews = viewsByListing.get(listing.id) ?? 0;
+        const listingOrders = byListing.get(listing.id)?.orders ?? 0;
+        return {
+          listing,
+          revenue: byListing.get(listing.id)?.revenue ?? 0,
+          orders: listingOrders,
+          views: listingViews,
+          conversion: listingViews > 0 ? listingOrders / listingViews : null,
+        };
+      })
       .sort((a, b) => b.revenue - a.revenue);
 
     return {
@@ -273,22 +330,24 @@ export default function ClubAnalytics() {
       groupRevenue,
       orderCount,
       avgOrderValue,
+      avgUnitsPerOrder,
       uniqueBuyers: buyers.size,
+      newBuyers,
+      returningBuyers,
+      conversion,
       totalViews: viewsInRange.length,
       items,
       itemRevenueChart,
       leaderboard,
+      topBuyers,
       trend,
       heatmap,
       avgRating,
       reviewCount,
-      qaTotal: qaEntries.length,
-      qaAnswered: answered.length,
-      avgResponseHours,
-      dietary,
+      dietaryDemand,
       perListing,
     };
-  }, [orders, views, groups, listings, qaEntries, range]);
+  }, [orders, views, groups, listings, range]);
 
   if (authLoading) return <AnalyticsSkeleton />;
   if (!user) return <Navigate to="/login" replace />;
@@ -297,6 +356,7 @@ export default function ClubAnalytics() {
 
   const bestSeller = computed.items[0] ?? null;
   const slowest = computed.items.length > 1 ? computed.items[computed.items.length - 1] : null;
+  const itemRevenueTotal = computed.items.reduce((sum, item) => sum + item.revenue, 0);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10">
@@ -348,7 +408,15 @@ export default function ClubAnalytics() {
                   : "from verified payments"
               }
             />
-            <StatCard label="Orders" value={String(computed.orderCount)} sub={`last ${range} days`} />
+            <StatCard
+              label="Orders"
+              value={String(computed.orderCount)}
+              sub={
+                computed.orderCount > 0
+                  ? `${computed.avgUnitsPerOrder.toFixed(1)} items per order on average`
+                  : `last ${range} days`
+              }
+            />
             <StatCard
               label="Avg order value"
               value={computed.orderCount > 0 ? formatPrice(computed.avgOrderValue) : "n/a"}
@@ -357,21 +425,25 @@ export default function ClubAnalytics() {
             <StatCard
               label="Unique buyers"
               value={String(computed.uniqueBuyers)}
-              sub={`${computed.totalViews} views`}
+              sub={
+                computed.uniqueBuyers > 0
+                  ? `${computed.newBuyers} new, ${computed.returningBuyers} returning`
+                  : "no buyers in this window"
+              }
+            />
+            <StatCard
+              label="View → order rate"
+              value={computed.conversion === null ? "n/a" : `${(computed.conversion * 100).toFixed(1)}%`}
+              sub={
+                computed.conversion === null
+                  ? "no listing views yet"
+                  : `of ${computed.totalViews} listing views became orders`
+              }
             />
             <StatCard
               label="Avg rating"
               value={computed.avgRating === null ? "n/a" : computed.avgRating.toFixed(1)}
               sub={computed.reviewCount > 0 ? `${computed.reviewCount} reviews` : "no reviews yet"}
-            />
-            <StatCard
-              label="Q&A answered"
-              value={computed.qaTotal === 0 ? "n/a" : `${computed.qaAnswered} of ${computed.qaTotal}`}
-              sub={
-                computed.avgResponseHours === null
-                  ? "no questions yet"
-                  : `avg response ${computed.avgResponseHours < 1 ? "under an hour" : `${computed.avgResponseHours.toFixed(0)}h`}`
-              }
             />
           </div>
 
@@ -406,6 +478,7 @@ export default function ClubAnalytics() {
                       <th className="pb-2 font-semibold">Item</th>
                       <th className="pb-2 text-right font-semibold">Units sold</th>
                       <th className="pb-2 text-right font-semibold">Revenue</th>
+                      <th className="pb-2 text-right font-semibold">Share</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -414,6 +487,9 @@ export default function ClubAnalytics() {
                         <td className="py-2 pr-2 font-semibold">{item.name}</td>
                         <td className="py-2 text-right font-mono">{item.units}</td>
                         <td className="py-2 text-right font-mono font-bold">{formatPrice(item.revenue)}</td>
+                        <td className="py-2 text-right font-mono text-ink-muted">
+                          {itemRevenueTotal > 0 ? `${((item.revenue / itemRevenueTotal) * 100).toFixed(0)}%` : "–"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -421,18 +497,6 @@ export default function ClubAnalytics() {
               </div>
             )}
           </section>
-
-          {computed.leaderboard.length > 0 && (
-            <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
-              <h2 className="text-base font-bold">Recommender leaderboard</h2>
-              <p className="mt-0.5 text-xs text-ink-muted">
-                Revenue from orders that credited each member. Who raised the most money.
-              </p>
-              <div className="mt-3">
-                <RankBarChart data={computed.leaderboard} money />
-              </div>
-            </section>
-          )}
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-border bg-surface-raised p-4">
@@ -453,23 +517,66 @@ export default function ClubAnalytics() {
             </section>
           </div>
 
-          <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
-            <h2 className="text-base font-bold">Dietary tags across your items</h2>
-            {computed.dietary.length === 0 ? (
-              <p className="mt-3 text-sm text-ink-muted">
-                No dietary tags on your items yet. Tag items when creating a listing; students filter by them.
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+              <h2 className="text-base font-bold">Top buyers</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Your biggest spenders this window. Returning names are your regulars.
               </p>
-            ) : (
+              {computed.topBuyers.length === 0 ? (
+                <p className="mt-3 text-sm text-ink-muted">No verified buyers yet in this window.</p>
+              ) : (
+                <ul className="mt-3 divide-y divide-border/60">
+                  {computed.topBuyers.map((buyer, index) => (
+                    <li key={`${buyer.name}-${index}`} className="flex items-center justify-between gap-3 py-2">
+                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                        <span className="w-5 shrink-0 font-mono text-xs text-ink-muted">{index + 1}.</span>
+                        <span className="truncate font-semibold">{buyer.name}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-ink-muted">
+                        <span className="font-mono font-bold text-ink">{formatPrice(buyer.spend)}</span>
+                        {" · "}
+                        {buyer.orders} {buyer.orders === 1 ? "order" : "orders"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+              <h2 className="text-base font-bold">What buyers pick (dietary)</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Units actually sold, grouped by the dietary tags on those items.
+              </p>
+              {computed.dietaryDemand.length === 0 ? (
+                <p className="mt-3 text-sm text-ink-muted">
+                  No tagged items sold yet. Tag items when creating a listing and this fills in as
+                  students buy them.
+                </p>
+              ) : (
+                <div className="mt-3">
+                  <TagBarChart data={computed.dietaryDemand} />
+                </div>
+              )}
+            </section>
+          </div>
+
+          {computed.leaderboard.length > 0 && (
+            <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+              <h2 className="text-base font-bold">Recommender leaderboard</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Revenue from orders that credited each member. Who raised the most money.
+              </p>
               <div className="mt-3">
-                <TagBarChart data={computed.dietary} />
+                <RankBarChart data={computed.leaderboard} money />
               </div>
-            )}
-          </section>
+            </section>
+          )}
 
           <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
             <h2 className="text-base font-bold">Per listing</h2>
             <div className="mt-3 space-y-2">
-              {computed.perListing.map(({ listing, revenue, orders, views }) => (
+              {computed.perListing.map(({ listing, revenue, orders: listingOrders, views: listingViews, conversion }) => (
                 <div
                   key={listing.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface px-3 py-2.5"
@@ -478,15 +585,21 @@ export default function ClubAnalytics() {
                     <p className="truncate text-sm font-bold">{listing.title}</p>
                     <p className="text-xs text-ink-muted">{listing.brand}</p>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-ink-muted">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
                     <span>
                       <span className="font-mono font-bold text-ink">{formatPrice(revenue)}</span> revenue
                     </span>
                     <span>
-                      <span className="font-mono font-bold text-ink">{orders}</span> orders
+                      <span className="font-mono font-bold text-ink">{listingOrders}</span> orders
                     </span>
                     <span>
-                      <span className="font-mono font-bold text-ink">{views}</span> views
+                      <span className="font-mono font-bold text-ink">{listingViews}</span> views
+                    </span>
+                    <span>
+                      <span className="font-mono font-bold text-ink">
+                        {conversion === null ? "–" : `${(conversion * 100).toFixed(1)}%`}
+                      </span>{" "}
+                      converted
                     </span>
                     {listing.review_count > 0 ? (
                       <span className="flex items-center gap-1">

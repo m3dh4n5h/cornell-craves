@@ -56,15 +56,17 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
             transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
             className="rounded-xl border border-border/70 p-2.5"
           >
-            <div className="flex items-center gap-2">
+            {/* Wraps on phones: the name gets the full first row so it never
+                gets crushed to a sliver by the fixed-width price/qty fields. */}
+            <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={item.name}
                 onChange={(e) => updateItem(index, { name: e.target.value })}
                 placeholder={index === 0 ? "Glazed dozen" : "Item name"}
                 aria-label={`Item ${index + 1} name`}
-                className="flex-1"
+                className="min-w-0 flex-1 basis-full sm:basis-auto"
               />
-              <div className="relative w-28 shrink-0">
+              <div className="relative w-28 shrink-0 max-sm:flex-1">
                 <span
                   className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-ink-muted"
                   aria-hidden="true"
@@ -80,7 +82,7 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
                   className="pl-7 font-mono"
                 />
               </div>
-              <div className="relative w-24 shrink-0">
+              <div className="relative w-24 shrink-0 max-sm:flex-1">
                 <Input
                   value={item.quantity}
                   onChange={(e) => updateItem(index, { quantity: e.target.value })}

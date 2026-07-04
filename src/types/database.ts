@@ -189,6 +189,18 @@ export type AdminBrandRevenue = {
   orders: number;
 };
 
+/** Platform-wide insight payload from admin_insights() (migration 041). */
+export type AdminInsights = {
+  daily: { day: string; revenue: number; orders: number }[];
+  top_items: { name: string; units: number; revenue: number }[];
+  heatmap: { dow: number; hour: number; orders: number }[];
+  buyers_total: number;
+  buyers_repeat: number;
+  buyers_new_30d: number;
+  students_new_30d: number;
+  avg_order_value_30d: number;
+};
+
 export type Listing = {
   id: string;
   club_id: string;
@@ -1076,6 +1088,10 @@ export type Database = {
       admin_revenue_by_brand: {
         Args: Record<string, never>;
         Returns: AdminBrandRevenue[];
+      };
+      admin_insights: {
+        Args: Record<string, never>;
+        Returns: AdminInsights | null;
       };
       am_i_admin: {
         Args: Record<string, never>;

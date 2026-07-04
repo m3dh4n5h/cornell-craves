@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Download, SearchX } from "lucide-react";
+import { ArrowLeft, Copy, Download, SearchX } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyOrders, ORDER_STATUS_META } from "@/lib/orders";
 import { formatPrice } from "@/lib/format";
 import { QRCodeView } from "@/components/QRCodeView";
+import { VenmoButton } from "@/components/VenmoButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,9 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [togglingProxy, setTogglingProxy] = useState(false);
   const [savingPdf, setSavingPdf] = useState(false);
+  // Club payment handles so an unpaid buyer can pay from right here. Fetched
+  // via the (publicly readable) listing; absence just hides the buttons.
+  const [clubPay, setClubPay] = useState<{ venmo: string | null; zelle: string | null } | null>(null);
 
   // Lazy-load jsPDF only when the buyer actually saves a PDF.
   const downloadPdf = async (current: MyOrder) => {
@@ -54,6 +58,24 @@ export default function OrderDetail() {
   useEffect(() => {
     if (!authLoading && user) void load();
   }, [authLoading, user, load]);
+
+  const pendingListingId = order?.status === "pending_payment" ? order.listing_id : null;
+  useEffect(() => {
+    if (!pendingListingId) return;
+    let cancelled = false;
+    void supabase
+      .from("listings")
+      .select("clubs(venmo, zelle_phone)")
+      .eq("id", pendingListingId)
+      .maybeSingle<{ clubs: { venmo: string | null; zelle_phone: string | null } | null }>()
+      .then(({ data }) => {
+        if (cancelled || !data?.clubs) return;
+        setClubPay({ venmo: data.clubs.venmo, zelle: data.clubs.zelle_phone });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingListingId]);
 
   // v4: order details require a Google student account.
   if (!authLoading && (!user || !isGoogleUser)) {
@@ -234,13 +256,56 @@ export default function OrderDetail() {
         </section>
       ) : (
         order.status === "pending_payment" && (
-          <section className="mt-4 rounded-2xl border border-dashed border-border bg-surface-raised p-4">
-            <h2 className="text-base font-bold">Pickup passes</h2>
-            <p className="mt-1 text-sm text-ink-muted">
-              Your QR pass {order.proxy_name ? "and your proxy's pass " : ""}will be emailed
-              once the club verifies your payment.
-            </p>
-          </section>
+          <>
+            {clubPay && (clubPay.venmo || clubPay.zelle) && (
+              <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+                <h2 className="text-base font-bold">Pay {order.club_name ?? "the club"}</h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                  Send {formatPrice(Number(order.total))} and the club verifies it to release your
+                  pass.
+                </p>
+                {(order.payment_method === "venmo" || order.payment_method === "both") &&
+                  clubPay.venmo && (
+                    <div className="mt-3">
+                      <VenmoButton
+                        handle={clubPay.venmo}
+                        note={`Cornell Craves: ${order.listing_title}`}
+                        amount={Number(order.total)}
+                      />
+                    </div>
+                  )}
+                {(order.payment_method === "zelle" || order.payment_method === "both") &&
+                  clubPay.zelle && (
+                    <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-surface px-3 py-2.5">
+                      <p className="min-w-0 truncate text-sm text-ink-muted">
+                        Zelle <span className="ml-1 font-mono text-ink">{clubPay.zelle}</span>
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(clubPay.zelle!)
+                            .then(() => toast.success("Zelle number copied"))
+                            .catch(() => toast.error("Could not copy, long-press the number instead"));
+                        }}
+                        aria-label="Copy Zelle number"
+                        className="shrink-0 px-2.5 text-ink-muted"
+                      >
+                        <Copy className="size-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  )}
+              </section>
+            )}
+            <section className="mt-4 rounded-2xl border border-dashed border-border bg-surface-raised p-4">
+              <h2 className="text-base font-bold">Pickup passes</h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                Your QR pass {order.proxy_name ? "and your proxy's pass " : ""}will be emailed
+                once the club verifies your payment.
+              </p>
+            </section>
+          </>
         )
       )}
 

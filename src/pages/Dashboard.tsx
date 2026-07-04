@@ -815,6 +815,7 @@ function ListingForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What are you raising money for? Any flavors or limits worth knowing?"
+          className="min-h-28"
         />
       </div>
 
@@ -1072,7 +1073,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
+      <p className="mt-1 break-words font-display text-xl font-extrabold sm:text-2xl">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
     </div>
   );

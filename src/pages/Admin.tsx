@@ -5,6 +5,11 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { formatExpiry, formatPrice } from "@/lib/format";
+import {
+  PeakHeatmap,
+  RevenueLineChart,
+  type RevenuePoint,
+} from "@/components/AnalyticsChart";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,18 +21,19 @@ import type {
   AdminClub,
   AdminClubBrandApproval,
   AdminGlobalBrand,
+  AdminInsights,
   AdminListing,
   AdminOverview,
 } from "@/types/database";
 
 type BrandDecision = "one_time" | "global" | "reject";
-type TabId = "approvals" | "requests" | "listings" | "clubs" | "revenue" | "brands";
+type TabId = "insights" | "approvals" | "requests" | "listings" | "clubs" | "revenue" | "brands";
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
+      <p className="mt-1 break-words font-display text-xl font-extrabold sm:text-2xl">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
     </div>
   );
@@ -156,6 +162,7 @@ function ClubRow({
 }
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: "insights", label: "Insights" },
   { id: "approvals", label: "Approvals" },
   { id: "requests", label: "Brand requests" },
   { id: "listings", label: "Listings" },
@@ -230,6 +237,10 @@ export default function Admin() {
   const [clubBrands, setClubBrands] = useState<AdminClubBrandApproval[]>([]);
   const [allListings, setAllListings] = useState<AdminListing[]>([]);
   const [brandRevenue, setBrandRevenue] = useState<AdminBrandRevenue[]>([]);
+  // Insights load separately: if migration 041 hasn't been applied yet, only
+  // this tab degrades instead of the whole page erroring.
+  const [insights, setInsights] = useState<AdminInsights | null>(null);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
   const [backendAdmin, setBackendAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -241,7 +252,7 @@ export default function Admin() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [ov, rq, cl, br, cb, li, rev, me] = await Promise.all([
+    const [ov, rq, cl, br, cb, li, rev, me, ins] = await Promise.all([
       supabase.rpc("admin_overview"),
       supabase.rpc("admin_brand_requests"),
       supabase.rpc("admin_clubs"),
@@ -250,9 +261,12 @@ export default function Admin() {
       supabase.rpc("admin_listings"),
       supabase.rpc("admin_revenue_by_brand"),
       supabase.rpc("am_i_admin"),
+      supabase.rpc("admin_insights"),
     ]);
     const firstError = ov.error || rq.error || cl.error || br.error || cb.error || li.error || rev.error || me.error;
     if (firstError) setError(firstError.message);
+    setInsights((ins.data as AdminInsights | null) ?? null);
+    setInsightsError(ins.error?.message ?? null);
     setOverview((ov.data as AdminOverview | null) ?? null);
     setRequests((rq.data as unknown as AdminBrandRequest[]) ?? []);
     setClubs((cl.data as unknown as AdminClub[]) ?? []);
@@ -291,6 +305,31 @@ export default function Admin() {
         listing.club_name.toLowerCase().includes(query),
     );
   }, [allListings, search]);
+
+  // Chart-ready shapes from admin_insights(). Days come back as YYYY-MM-DD in
+  // America/New_York; fill the 30-day window so the trend has no gaps.
+  const insightsView = useMemo(() => {
+    if (!insights) return null;
+    const revenueByDay = new Map(insights.daily.map((entry) => [entry.day, Number(entry.revenue)]));
+    const dayKey = (date: Date) => date.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const trend: RevenuePoint[] = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date(Date.now() - (29 - index) * 86_400_000);
+      return {
+        day: date.toLocaleDateString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+        }),
+        revenue: Math.round((revenueByDay.get(dayKey(date)) ?? 0) * 100) / 100,
+      };
+    });
+    const heatmap: number[][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
+    for (const cell of insights.heatmap) {
+      if (heatmap[cell.dow]?.[cell.hour] !== undefined) heatmap[cell.dow][cell.hour] = cell.orders;
+    }
+    const orders30d = insights.daily.reduce((sum, entry) => sum + Number(entry.orders), 0);
+    return { trend, heatmap, orders30d };
+  }, [insights]);
 
   if (authLoading) {
     return (
@@ -538,6 +577,105 @@ export default function Admin() {
               <div key={index} className="h-24 animate-pulse rounded-2xl bg-border/40" />
             ))}
           </div>
+        ) : tab === "insights" ? (
+          insightsError ? (
+            <div className="flex items-start gap-2 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />
+              <span>
+                Insights need the <span className="font-mono">041_admin_insights.sql</span> migration.
+                Apply it to Supabase and refresh. ({insightsError})
+              </span>
+            </div>
+          ) : !insights || !insightsView ? (
+            <EmptyState
+              icon={<Inbox className="size-6" aria-hidden="true" />}
+              title="No insight data"
+              body="Once verified orders start coming in, platform-wide buying patterns show up here."
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard
+                  label="Avg order value"
+                  value={formatPrice(Number(insights.avg_order_value_30d))}
+                  sub={`${insightsView.orders30d} orders in 30 days`}
+                />
+                <StatCard
+                  label="Repeat buyers"
+                  value={
+                    insights.buyers_total > 0
+                      ? `${Math.round((insights.buyers_repeat / insights.buyers_total) * 100)}%`
+                      : "n/a"
+                  }
+                  sub={`${insights.buyers_repeat} of ${insights.buyers_total} ordered again`}
+                />
+                <StatCard
+                  label="New buyers"
+                  value={String(insights.buyers_new_30d)}
+                  sub="first order in last 30 days"
+                />
+                <StatCard
+                  label="New students"
+                  value={String(insights.students_new_30d)}
+                  sub="accounts created, last 30 days"
+                />
+              </div>
+
+              <section className="rounded-2xl border border-border bg-surface-raised p-4">
+                <h3 className="text-sm font-bold">Platform revenue, last 30 days</h3>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Verified payments plus paid group shares, across every club.
+                </p>
+                <div className="mt-3">
+                  <RevenueLineChart data={insightsView.trend} />
+                </div>
+              </section>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <section className="rounded-2xl border border-border bg-surface-raised p-4">
+                  <h3 className="text-sm font-bold">Top items platform-wide</h3>
+                  <p className="mt-0.5 text-xs text-ink-muted">
+                    What students actually buy, last 30 days.
+                  </p>
+                  {insights.top_items.length === 0 ? (
+                    <p className="mt-3 text-sm text-ink-muted">No verified item sales yet.</p>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="w-full min-w-[300px] text-sm">
+                        <thead>
+                          <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
+                            <th className="pb-2 font-semibold">Item</th>
+                            <th className="pb-2 text-right font-semibold">Units</th>
+                            <th className="pb-2 text-right font-semibold">Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/60">
+                          {insights.top_items.map((item) => (
+                            <tr key={item.name}>
+                              <td className="py-2 pr-2 font-semibold">{item.name}</td>
+                              <td className="py-2 text-right font-mono">{item.units}</td>
+                              <td className="py-2 text-right font-mono font-bold">
+                                {formatPrice(Number(item.revenue))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+                <section className="rounded-2xl border border-border bg-surface-raised p-4">
+                  <h3 className="text-sm font-bold">When students order</h3>
+                  <p className="mt-0.5 text-xs text-ink-muted">
+                    Verified orders by day and hour, last 30 days, Ithaca time.
+                  </p>
+                  <div className="mt-3">
+                    <PeakHeatmap matrix={insightsView.heatmap} />
+                  </div>
+                </section>
+              </div>
+            </div>
+          )
         ) : tab === "approvals" ? (
           pendingClubs.length === 0 ? (
             <EmptyState
