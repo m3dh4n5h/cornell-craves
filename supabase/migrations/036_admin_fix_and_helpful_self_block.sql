@@ -11,7 +11,9 @@ returns boolean
 language sql
 stable
 as $$
-  select lower(coalesce(auth.jwt() ->> 'email', '')) = lower('medhansh.bhagchandani@gmail.com');
+  -- Admin identity is set at runtime in the admin_emails table as of migration
+  -- 042; this historical literal is a neutral placeholder and is superseded there.
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = lower('admin@cornell.edu');
 $$;
 
 -- Lets the admin page confirm the backend recognizes them (diagnostics).

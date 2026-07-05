@@ -21,6 +21,14 @@
 //   SITE_URL        optional, defaults to http://localhost:5173
 //   FROM_EMAIL      required for real sending; must be a Brevo-verified sender,
 //                   in the form "Cornell Craves <you@yourdomain.com>"
+//   WEBHOOK_SECRET  optional but recommended. When set, database-webhook calls
+//                   (the table-triggered email branches) must present a matching
+//                   `x-webhook-secret` header, so nobody who knows this URL can
+//                   forge a webhook payload and make us email arbitrary people.
+//                   Set the SAME value as a custom header on every Database
+//                   Webhook in the Supabase dashboard. Action calls (verify_
+//                   payment, scan_qr, ...) are unaffected: they already require
+//                   a signed-in Bearer token.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -81,6 +89,20 @@ const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "http://localhost:5173").replace(/\/+$/, "");
 const FROM_EMAIL = Deno.env.get("FROM_EMAIL") ?? "Cornell Craves <no-reply@example.com>";
 const QR_SECRET = Deno.env.get("QR_SECRET") ?? "";
+const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET") ?? "";
+
+// Constant-time string compare so a forged secret can't be recovered byte by
+// byte via response timing. Uses its own encoder to stay independent of
+// declaration order elsewhere in the module.
+function secretsMatch(provided: string, expected: string): boolean {
+  const enc = new TextEncoder();
+  const a = enc.encode(provided);
+  const b = enc.encode(expected);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -1120,7 +1142,13 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json({ ok: true, ...result });
     }
 
-    // Database webhooks.
+    // Database webhooks. Unlike the action calls above, these carry no user
+    // session, so when WEBHOOK_SECRET is configured we require Supabase to
+    // present it as a header before we send any email. Optional so existing
+    // deployments keep working until the secret is set on both ends.
+    if (WEBHOOK_SECRET && !secretsMatch(req.headers.get("x-webhook-secret") ?? "", WEBHOOK_SECRET)) {
+      return Response.json({ ok: false, error: "Unauthorized webhook" }, { status: 401 });
+    }
     const payload = body as unknown as WebhookPayload;
 
     if (payload.table === "listings" && payload.type === "INSERT" && payload.record) {

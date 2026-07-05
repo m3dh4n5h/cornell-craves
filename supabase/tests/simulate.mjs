@@ -2,13 +2,27 @@
 // Each step mirrors a real client call (same columns, same RPCs).
 import { boot, asUser, createAuthUser, check, summary } from "./harness.mjs";
 
-const ADMIN_EMAIL = "medhansh.bhagchandani@gmail.com";
+// Neutral, non-personal admin address; override with ADMIN_EMAIL if you seed a
+// different one. Kept in sync with the placeholder in migrations 036/039 so the
+// pre-042 (literal) and post-042 (admin_emails table) paths both recognize it.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@cornell.edu";
 // Post-040 expectations by default; FIXED=0 replays the pre-040 bugs (boot
 // the harness with { through: "039" } to see them).
 const FIXED = process.env.FIXED !== "0";
 
 const db = await boot();
 console.log(`Booted with migrations${FIXED ? " (including 040 fix)" : " through 039"}\n`);
+
+// As of migration 042 the admin list lives in a table seeded at runtime (never
+// in git). Mirror that here so is_admin() recognizes the test admin. Guarded so
+// it's a no-op when the harness boots through an earlier migration.
+await db.exec(`
+  do $$ begin
+    if to_regclass('public.admin_emails') is not null then
+      insert into public.admin_emails (email) values ('${ADMIN_EMAIL}') on conflict do nothing;
+    end if;
+  end $$;
+`);
 
 // ---- Actors ----
 const admin = await createAuthUser(db, ADMIN_EMAIL);

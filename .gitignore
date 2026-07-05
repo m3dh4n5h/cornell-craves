@@ -153,3 +153,21 @@ NEXT_STEPS.md
 # Local-only agent settings and scratch prompts (never commit)
 .claude/
 ignore/
+
+# Secret material — never commit keys, certs, or credential dumps
+*.pem
+*.key
+*.p12
+*.pfx
+*.pkcs12
+secrets.json
+service-account*.json
+**/*.secret
+# Supabase local CLI state (may contain project refs / access tokens)
+supabase/.temp/
+supabase/.branches/
+.supabase/
+
+# Generated "apply everything" SQL bundles — duplicate the numbered migrations
+# and historically embedded the admin email. Keep them local, not on GitHub.
+/APPLY_PENDING_*.sql

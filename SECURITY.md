@@ -18,6 +18,8 @@ Cornell Craves stores PII (names, NetIDs, Cornell emails, phone numbers, payment
 4. **Keep RLS on.** Every new table gets `enable row level security` plus explicit policies. A table with no policy is unreadable, which is the safe default; do not add `using (true)` to a table that holds emails or other PII.
 5. **Secrets stay in Supabase.** `RESEND_API_KEY`, `QR_SECRET`, and the service role key live in `supabase secrets`, never in the repo, never in a `VITE_` variable (those ship to the browser). Only `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_ADMIN_EMAIL` are safe to expose.
 6. **Sign and validate QR tokens.** Pickup passes are HMAC-SHA256 over `{order/group id, type, timestamp}` with `QR_SECRET`. Verify the signature before honoring a scan; never decode-and-trust.
+7. **Authenticate database webhooks.** The `notify-cravings` function sends email on table triggers. Set `WEBHOOK_SECRET` in Supabase secrets and add the same value as an `x-webhook-secret` header on every Database Webhook, so a forged POST to the function URL can't make it email arbitrary people. Action calls stay gated by the caller's Bearer session.
+8. **Admin identity is data, not code.** `is_admin()` reads the `admin_emails` table (migration 042), seeded by hand in the SQL editor. Never hard-code an admin address in a migration or commit it.
 
 ## Rules for frontend code
 
