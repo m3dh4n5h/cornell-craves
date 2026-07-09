@@ -14,10 +14,12 @@ import {
 import { TemplateCard } from "@/components/TemplateCard";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { DateTimeField } from "@/components/ui/datetime";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { BRANDS } from "@/lib/brands";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,8 @@ interface TemplateFormProps {
 }
 
 function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps) {
+  // Merged list (built-ins + admin-deployed brands), same as the listing form.
+  const templateBrandOptions = useBrandOptions();
   const [name, setName] = useState(initial?.name ?? "");
   const [brand, setBrand] = useState(initial?.brand ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -120,19 +124,15 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
         </div>
         <div>
           <Label htmlFor="template-brand">Brand</Label>
-          <Input
+          <Combobox
             id="template-brand"
-            list="template-brand-options"
             value={brand}
+            onChange={setBrand}
+            options={templateBrandOptions}
             invalid={showErrors && Boolean(errors.brand)}
-            onChange={(e) => setBrand(e.target.value)}
             placeholder="Krispy Kreme"
+            emptyHint="Not in the list yet. New brands go through admin review when you post."
           />
-          <datalist id="template-brand-options">
-            {BRANDS.map((option) => (
-              <option key={option} value={option} />
-            ))}
-          </datalist>
           {showErrors && errors.brand && (
             <p className="mt-1.5 text-xs font-medium text-accent" role="alert">
               {errors.brand}
@@ -216,7 +216,7 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
           </div>
           <div>
             <Label htmlFor="template-next-run">First run date (optional)</Label>
-            <Input
+            <DateTimeField
               id="template-next-run"
               type="date"
               value={nextRunDate}
@@ -330,7 +330,13 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
         </div>
         <div>
           <Label htmlFor="post-brand">Brand</Label>
-          <Input id="post-brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
+          <Combobox
+            id="post-brand"
+            value={brand}
+            onChange={setBrand}
+            options={brandOptions}
+            emptyHint="Not in the list yet. Unapproved brands save as a draft for admin review."
+          />
         </div>
       </div>
       <div className="mt-4">
@@ -348,20 +354,18 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="post-expires">Ends at (date &amp; time)</Label>
-          <Input
+          <DateTimeField
             id="post-expires"
-            type="datetime-local"
             value={expiresAt}
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </div>
         <div>
           <Label htmlFor="post-location">Pickup location (optional)</Label>
-          <select
+          <Select
             id="post-location"
             value={locationId}
             onChange={(e) => setLocationId(e.target.value)}
-            className="h-11 w-full rounded-xl border border-border bg-surface-raised px-3 text-base text-ink focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
           >
             <option value="">No map pin</option>
             {locations.map((location) => (
@@ -369,7 +373,7 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
                 {location.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
       {trimmedBrand.length >= 2 && !isPostable && (

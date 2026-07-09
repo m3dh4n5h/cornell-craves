@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { PaymentMethod } from "@/types/database";
 
@@ -820,34 +821,25 @@ export default function OrderForm() {
         {/* Recommender (optional) */}
         {listing.recommender_enabled && (listing.clubs?.member_options?.length ?? 0) > 0 && (
           <section className="rounded-2xl border border-border bg-surface-raised p-4">
-            <h2 className="text-base font-bold">Which member recommended you?</h2>
+            <Label htmlFor="order-recommender" className="text-base font-bold">
+              Which member recommended you?
+            </Label>
             <p className="mt-1 text-xs text-ink-muted">
               Optional. Helps {listing.clubs?.name ?? "the club"} credit the member who sent you.
             </p>
-            <div
-              className="mt-3 flex flex-wrap gap-2"
-              role="radiogroup"
-              aria-label="Which member recommended you?"
-            >
-              {[{ value: "", label: "No one in particular" }, ...listing.clubs!.member_options.map((m) => ({ value: m, label: m }))].map(
-                (option) => (
-                  <button
-                    key={option.value || "none"}
-                    type="button"
-                    role="radio"
-                    aria-checked={recommender === option.value}
-                    onClick={() => setRecommender(option.value)}
-                    className={cn(
-                      "min-h-11 rounded-full border px-4 py-2 text-sm font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
-                      recommender === option.value
-                        ? "border-ink bg-ink text-surface-raised"
-                        : "border-border bg-surface-raised text-ink hover-fine:border-primary",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ),
-              )}
+            <div className="mt-3">
+              <Select
+                id="order-recommender"
+                value={recommender}
+                onChange={(e) => setRecommender(e.target.value)}
+              >
+                <option value="">No one in particular</option>
+                {listing.clubs!.member_options.map((member) => (
+                  <option key={member} value={member}>
+                    {member}
+                  </option>
+                ))}
+              </Select>
             </div>
           </section>
         )}

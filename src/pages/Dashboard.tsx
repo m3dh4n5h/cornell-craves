@@ -30,8 +30,11 @@ import {
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { DateTimeField } from "@/components/ui/datetime";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
@@ -116,24 +119,20 @@ function SlotsEditor({
             <Label htmlFor={`slot-start-${index}`} className="mb-1 text-xs">
               Starts
             </Label>
-            <Input
+            <DateTimeField
               id={`slot-start-${index}`}
-              type="datetime-local"
               value={slot.start}
               onChange={(e) => update(index, { start: e.target.value })}
-              className="h-10 w-full"
             />
           </div>
           <div className="min-w-0 flex-1 basis-full sm:basis-40">
             <Label htmlFor={`slot-end-${index}`} className="mb-1 text-xs">
               Ends
             </Label>
-            <Input
+            <DateTimeField
               id={`slot-end-${index}`}
-              type="datetime-local"
               value={slot.end}
               onChange={(e) => update(index, { end: e.target.value })}
-              className="h-10 w-full"
             />
           </div>
           <div className="w-24">
@@ -145,18 +144,17 @@ function SlotsEditor({
               inputMode="numeric"
               value={slot.max}
               onChange={(e) => update(index, { max: e.target.value })}
-              className="h-10 font-mono"
+              className="font-mono"
             />
           </div>
           <div className="min-w-0 flex-1 basis-full sm:basis-44">
             <Label htmlFor={`slot-location-${index}`} className="mb-1 text-xs">
               Pickup spot for this day
             </Label>
-            <select
+            <Select
               id={`slot-location-${index}`}
               value={slot.locationId}
               onChange={(e) => update(index, { locationId: e.target.value })}
-              className={SELECT_CLASS}
             >
               <option value="">No specific spot</option>
               {locations.map((location) => (
@@ -164,7 +162,7 @@ function SlotsEditor({
                   {location.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           {slot.reserved > 0 ? (
             <Badge variant="default" className="mb-2.5">
@@ -241,9 +239,6 @@ function causeError(name: string, percent: string): string | undefined {
     : "Enter a donation percentage from 1 to 100.";
 }
 
-const SELECT_CLASS =
-  "h-10 w-full rounded-xl border border-border bg-surface-raised px-3 text-sm text-ink focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40";
-
 function SpotsEditor({
   spots,
   locations,
@@ -282,11 +277,10 @@ function SpotsEditor({
               <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
                 Campus spot
               </Label>
-              <select
+              <Select
                 id={`spot-location-${index}`}
                 value={spot.locationId}
                 onChange={(e) => update(index, { locationId: e.target.value })}
-                className={SELECT_CLASS}
               >
                 <option value="">Pick a location</option>
                 {locations.map((location) => (
@@ -294,22 +288,21 @@ function SpotsEditor({
                     {location.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="min-w-0 flex-1 basis-full sm:basis-36">
               <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
                 Ordering
               </Label>
-              <select
+              <Select
                 id={`spot-type-${index}`}
                 value={spot.orderType}
                 onChange={(e) => update(index, { orderType: e.target.value as OrderType })}
-                className={SELECT_CLASS}
               >
                 <option value="preorder">Pre-order only</option>
                 <option value="same_day">Same-day pickup</option>
                 <option value="both">Pre-order &amp; same-day</option>
-              </select>
+              </Select>
             </div>
             <Button
               type="button"
@@ -327,24 +320,20 @@ function SpotsEditor({
               <Label htmlFor={`spot-from-${index}`} className="mb-1 text-xs">
                 Available from
               </Label>
-              <Input
+              <DateTimeField
                 id={`spot-from-${index}`}
-                type="datetime-local"
                 value={spot.availableStart}
                 onChange={(e) => update(index, { availableStart: e.target.value })}
-                className="h-10 w-full"
               />
             </div>
             <div className="min-w-0">
               <Label htmlFor={`spot-until-${index}`} className="mb-1 text-xs">
                 Available until
               </Label>
-              <Input
+              <DateTimeField
                 id={`spot-until-${index}`}
-                type="datetime-local"
                 value={spot.availableEnd}
                 onChange={(e) => update(index, { availableEnd: e.target.value })}
-                className="h-10 w-full"
               />
             </div>
           </div>
@@ -741,19 +730,15 @@ function ListingForm({
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <div>
           <Label htmlFor="brand">Brand</Label>
-          <Input
+          <Combobox
             id="brand"
-            list="brand-options"
             value={brand}
+            onChange={setBrand}
+            options={brandOptions}
             invalid={showErrors && Boolean(errors.brand)}
-            onChange={(e) => setBrand(e.target.value)}
             placeholder="Krispy Kreme"
+            emptyHint="Not in the list yet. Keep typing, then request it below."
           />
-          <datalist id="brand-options">
-            {brandOptions.map((option) => (
-              <option key={option} value={option} />
-            ))}
-          </datalist>
           <FieldError message={showErrors ? errors.brand : undefined} />
           {approvedJustForClub && (
             <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary-dark">
@@ -785,9 +770,8 @@ function ListingForm({
         </div>
         <div>
           <Label htmlFor="expires-at">Ends at</Label>
-          <Input
+          <DateTimeField
             id="expires-at"
-            type="datetime-local"
             value={expiresAt}
             invalid={showErrors && Boolean(errors.expiresAt)}
             onChange={(e) => setExpiresAt(e.target.value)}
