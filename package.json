@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "VITE_MOCK=1 vite --port 5174",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
