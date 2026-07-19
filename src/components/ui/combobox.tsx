@@ -177,7 +177,7 @@ export function Combobox({
               id={listboxId}
               role="listbox"
               aria-label="Suggestions"
-              className="max-h-64 overflow-y-auto py-1.5"
+              className="max-h-64 overflow-y-auto overscroll-contain py-1.5 [touch-action:pan-y]"
             >
               {filtered.map((option, index) => (
                 <li
@@ -187,11 +187,24 @@ export function Combobox({
                   role="option"
                   aria-selected={index === selectedIndex}
                   onPointerDown={(event) => {
-                    // Select before the input can blur, so focus never jumps.
-                    event.preventDefault();
-                    select(option);
+                    // Mouse only: select before the input can blur, so focus
+                    // never jumps. On touch, pointerdown is also the start of a
+                    // scroll gesture - selecting here made the list impossible
+                    // to scroll on phones (any touch picked an option and
+                    // closed the menu). Touch selection happens in onClick,
+                    // which the browser only fires for a real tap, never a
+                    // scroll.
+                    if (event.pointerType === "mouse") {
+                      event.preventDefault();
+                      select(option);
+                    }
                   }}
-                  onPointerMove={() => setActive(index)}
+                  onClick={() => select(option)}
+                  onPointerMove={(event) => {
+                    // Hover highlight is a mouse affordance; on touch it would
+                    // repaint rows mid-scroll.
+                    if (event.pointerType === "mouse") setActive(index);
+                  }}
                   className={cn(
                     "flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3.5 py-2 text-sm",
                     index === active && "bg-ink/[0.05]",

@@ -446,6 +446,8 @@ export type OrderGroup = {
   status: GroupStatus;
   visibility: GroupVisibility;
   created_by: string;
+  /** "Which member recommended you?", set by the creator (migration 043). */
+  recommended_by?: string | null;
   created_at: string;
 };
 
@@ -456,6 +458,9 @@ export type OrderGroupMember = {
   status: GroupMemberStatus;
   qr_encrypted: string;
   scanned_at: string | null;
+  /** How this member says they are paying their share (migration 043). */
+  payment_method?: "venmo" | "zelle" | null;
+  payment_handle?: string | null;
   created_at: string;
 };
 
@@ -476,6 +481,9 @@ export type GroupMemberView = {
   status: GroupMemberStatus;
   scanned_at: string | null;
   is_creator: boolean;
+  /** Per-member payment declaration (migration 043); absent on older payloads. */
+  payment_method?: "venmo" | "zelle" | null;
+  payment_handle?: string | null;
 };
 
 /** Shape produced by the group_payload SQL helper (all group RPCs). */
@@ -493,7 +501,10 @@ export type GroupDetails = OrderGroup & {
   // Present depending on which RPC returned it:
   my_status?: GroupMemberStatus;
   my_member_id?: string;
+  /** Empty string until the WHOLE group is verified (migration 043 gating). */
   my_qr?: string;
+  /** 10-char pickup code; null until the whole group is verified. */
+  my_pickup_code?: string | null;
   invite_token?: string;
   invite_status?: "pending" | "accepted" | "declined";
 };
@@ -1232,6 +1243,14 @@ export type Database = {
       get_club_groups: {
         Args: Record<string, never>;
         Returns: GroupDetails[];
+      };
+      set_group_member_payment: {
+        Args: { p_group_id: string; p_method: "venmo" | "zelle"; p_handle: string };
+        Returns: undefined;
+      };
+      set_group_recommender: {
+        Args: { p_group_id: string; p_value: string };
+        Returns: undefined;
       };
     };
     Enums: { [_ in never]: never };

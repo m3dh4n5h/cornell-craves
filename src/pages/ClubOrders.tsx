@@ -189,6 +189,11 @@ function SplitGroupCard({
             </span>{" "}
             per person, {formatPrice(Number(group.item_price))} total
           </p>
+          {group.recommended_by && (
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Recommended by <span className="font-semibold text-ink">{group.recommended_by}</span>
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={status.variant}>{status.label}</Badge>
@@ -203,11 +208,31 @@ function SplitGroupCard({
           const meta = MEMBER_STATUS_META[member.status];
           return (
             <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <span className="text-sm font-semibold">
-                {member.name}
-                {member.is_creator && (
-                  <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
-                )}
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">
+                  {member.name}
+                  {member.is_creator && (
+                    <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
+                  )}
+                </span>
+                {/* The handle the student says they are paying from, so the club
+                    can match the incoming Venmo/Zelle payment to this member. */}
+                <span className="block text-xs text-ink-muted">
+                  {member.payment_method ? (
+                    <>
+                      Pays via {member.payment_method === "venmo" ? "Venmo" : "Zelle"}
+                      {member.payment_handle && (
+                        <span className="ml-1 font-mono text-ink">
+                          {member.payment_method === "venmo"
+                            ? `@${member.payment_handle.replace(/^@/, "")}`
+                            : member.payment_handle}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    "No payment details yet"
+                  )}
+                </span>
               </span>
               <span className="flex items-center gap-2">
                 {member.scanned_at ? (
@@ -328,9 +353,32 @@ export default function ClubOrders() {
   });
 
   // Group everything under its listing (#15). Filters above narrow what each
-  // section shows; split-order groups follow the listing filter too.
+  // section shows; split-order groups follow the listing filter AND the status
+  // filter (they used to ignore status, so "Needs verification" and "QR sent"
+  // changed nothing about splits).
+  const groupMatchesStatus = (group: GroupDetails): boolean => {
+    switch (statusFilter) {
+      case "pending_payment":
+        // Payment is open and at least one share still needs verifying.
+        return (
+          PAYABLE_GROUP_STATUSES.includes(group.status) &&
+          group.members.some((member) => member.status === "pending_payment")
+        );
+      case "qr_sent":
+        // Everyone verified (passes went out) but not everyone picked up yet.
+        return group.status === "paid" && group.members.some((member) => !member.scanned_at);
+      case "picked_up":
+        return (
+          group.status === "paid" &&
+          group.members.length > 0 &&
+          group.members.every((member) => Boolean(member.scanned_at))
+        );
+      default:
+        return true;
+    }
+  };
   const visibleGroups = groups.filter(
-    (group) => !listingFilter || group.listing_id === listingFilter,
+    (group) => (!listingFilter || group.listing_id === listingFilter) && groupMatchesStatus(group),
   );
   const sections = listings
     .map((listing) => ({
@@ -357,7 +405,7 @@ export default function ClubOrders() {
 
   const verifyGroupMember = async (memberId: string) => {
     setGroupBusyId(memberId);
-    const { error } = await supabase.functions.invoke("notify-cravings", {
+    const { data, error } = await supabase.functions.invoke("notify-cravings", {
       body: { action: "verify_group_payment", member_id: memberId },
     });
     setGroupBusyId(null);
@@ -365,7 +413,13 @@ export default function ClubOrders() {
       toast.error(`Verify failed: ${await readFnError(error)}`);
       return;
     }
-    toast.success("Member marked paid. Their QR pass is on its way.");
+    // Passes only go out once the WHOLE group is verified, so don't promise one.
+    const allPaid = Boolean((data as { all_paid?: boolean } | null)?.all_paid);
+    toast.success(
+      allPaid
+        ? "Everyone is verified. QR passes are being emailed to the whole group."
+        : "Share verified. QR passes go out once every member is verified.",
+    );
     await refetch();
   };
 

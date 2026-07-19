@@ -524,9 +524,9 @@ export const authedOrders = myOrders.map((order) => {
 // ---- Split groups ----
 
 const groupMembers = [
-  { id: "gm-1", user_id: "u-student", name: "Casey Nguyen", status: "paid", scanned_at: null, is_creator: true },
-  { id: "gm-2", user_id: "u-x2", name: "Priya Shah", status: "paid", scanned_at: null, is_creator: false },
-  { id: "gm-3", user_id: "u-x3", name: "Marcus Lee", status: "pending_payment", scanned_at: null, is_creator: false },
+  { id: "gm-1", user_id: "u-student", name: "Casey Nguyen", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "casey-nguyen" },
+  { id: "gm-2", user_id: "u-x2", name: "Priya Shah", status: "paid", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "ps482@cornell.edu" },
+  { id: "gm-3", user_id: "u-x3", name: "Marcus Lee", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null },
 ];
 
 export const myGroups = [
@@ -577,11 +577,12 @@ export const clubGroups = [
     club_venmo: "willow-lane-dance",
     share_amount: 4.25,
     units_per_person: 3,
+    recommended_by: "Aarav",
     members: [
-      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true },
-      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false },
-      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false },
-      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false },
+      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "dev-patel-3" },
+      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "607-555-0188" },
+      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false, payment_method: "venmo", payment_handle: "tombecker" },
+      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null },
     ],
   },
 ];

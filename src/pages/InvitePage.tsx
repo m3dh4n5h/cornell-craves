@@ -105,6 +105,25 @@ export default function InvitePage() {
                 each, split {group.total_people} ways ({formatPrice(Number(group.item_price))} total)
               </span>
             </p>
+            {/* Invited members need to see WHERE the money goes before joining. */}
+            {(group.club_venmo || group.club_zelle) && (
+              <p className="mt-1.5 text-xs text-ink-muted">
+                You pay {group.club_name} directly over{" "}
+                {group.club_venmo && (
+                  <>
+                    Venmo{" "}
+                    <span className="font-mono text-ink">@{group.club_venmo.replace(/^@/, "")}</span>
+                  </>
+                )}
+                {group.club_venmo && group.club_zelle && " or "}
+                {group.club_zelle && (
+                  <>
+                    Zelle <span className="font-mono text-ink">{group.club_zelle}</span>
+                  </>
+                )}{" "}
+                once the group fills.
+              </p>
+            )}
           </div>
           <Badge variant={status.variant}>{status.label}</Badge>
         </div>

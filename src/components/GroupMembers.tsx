@@ -49,6 +49,11 @@ export function GroupMembers({ group, currentUserId }: GroupMembersProps) {
                     <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
                   )}
                 </span>
+                {member.payment_method && (
+                  <span className="block truncate text-[11px] text-ink-muted">
+                    paying via {member.payment_method === "venmo" ? "Venmo" : "Zelle"}
+                  </span>
+                )}
               </span>
               {member.scanned_at ? (
                 <Badge variant="success">

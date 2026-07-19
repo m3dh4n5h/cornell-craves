@@ -705,7 +705,7 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
         `All ${group.total_people} spots for ${escapeHtml(group.item_name)} are taken. Everyone now pays their share of ${share}.`,
       ) +
         paragraph(
-          "You have 24 hours. Pay the club, they verify it, and your personal QR pickup pass lands in this inbox. Unpaid groups cancel automatically at the deadline.",
+          "You have 24 hours. On your orders page, pick Venmo or Zelle and pay the club. QR passes are emailed to everyone only after the club verifies EVERY member's share. Unpaid groups cancel automatically at the deadline.",
         ),
     );
   }
@@ -755,7 +755,10 @@ async function emailGroupInvite(invite: {
   await sendEmail(invite.invited_email, `Split ${group.item_name} from ${listing.title}?`, html);
 }
 
-async function verifyGroupPayment(memberId: string, authHeader: string | null): Promise<{ ok: true }> {
+async function verifyGroupPayment(
+  memberId: string,
+  authHeader: string | null,
+): Promise<{ ok: true; all_paid: boolean }> {
   const userId = await requireClubUser(authHeader);
 
   const { data: member } = await supabase
@@ -797,9 +800,10 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
     .eq("group_id", group.id)
     .neq("status", "paid");
   // Passes go out only once the WHOLE group has paid - until then the club is
-  // just checking members off.
+  // just checking members off. (The website mirrors this: get_my_groups only
+  // returns a member's QR token and pickup code once group.status = 'paid'.)
   if ((remaining ?? []).length > 0) {
-    return { ok: true };
+    return { ok: true, all_paid: false };
   }
 
   await supabase.from("order_groups").update({ status: "paid" }).eq("id", group.id);
@@ -831,7 +835,7 @@ async function verifyGroupPayment(memberId: string, authHeader: string | null): 
     await sleep(550);
   }
 
-  return { ok: true };
+  return { ok: true, all_paid: true };
 }
 
 async function reactivateGroup(groupId: string, authHeader: string | null): Promise<{ ok: true }> {

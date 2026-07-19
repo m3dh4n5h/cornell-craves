@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ReceiptText, Ticket, Users } from "lucide-react";
+import { Copy, ReceiptText, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -99,12 +99,80 @@ function OrderCard({ order, onCancelled }: { order: MyOrder; onCancelled: () => 
   );
 }
 
-function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
+function GroupCard({
+  group,
+  userId,
+  defaultHandles,
+  onChanged,
+}: {
+  group: GroupDetails;
+  userId: string;
+  /** Profile prefills for the payment-handle field. */
+  defaultHandles: { venmo: string; zelle: string };
+  onChanged: () => void;
+}) {
   const status = GROUP_STATUS_META[group.status];
   const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
   const myPaid = group.my_status === "paid";
+  const myMember = group.members.find((member) => member.user_id === userId);
   const [inviteEmails, setInviteEmails] = useState("");
   const [inviting, setInviting] = useState(false);
+  // Each member declares Venmo or Zelle for THEIR share (migration 043).
+  const [payMethod, setPayMethod] = useState<"venmo" | "zelle" | null>(
+    myMember?.payment_method ?? null,
+  );
+  const [payHandle, setPayHandle] = useState(myMember?.payment_handle ?? "");
+  const [savingPay, setSavingPay] = useState(false);
+
+  const pickMethod = (method: "venmo" | "zelle") => {
+    setPayMethod(method);
+    setPayHandle((previous) => {
+      const other = method === "venmo" ? "zelle" : "venmo";
+      // Prefill from the profile unless they already typed something custom.
+      if (!previous.trim() || previous === defaultHandles[other]) {
+        return defaultHandles[method] || previous;
+      }
+      return previous;
+    });
+  };
+
+  const savePayment = async () => {
+    if (!payMethod) {
+      toast.error("Pick Venmo or Zelle first.");
+      return;
+    }
+    if (!payHandle.trim()) {
+      toast.error(
+        payMethod === "venmo" ? "Enter your Venmo username." : "Enter your Zelle email or phone.",
+      );
+      return;
+    }
+    setSavingPay(true);
+    const { error } = await supabase.rpc("set_group_member_payment", {
+      p_group_id: group.id,
+      p_method: payMethod,
+      p_handle: payHandle.trim(),
+    });
+    setSavingPay(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Saved. The club will match your payment to these details.");
+    onChanged();
+  };
+
+  const copyZelle = async () => {
+    if (!group.club_zelle) return;
+    try {
+      await navigator.clipboard.writeText(group.club_zelle);
+      toast.success("Zelle number copied");
+    } catch {
+      toast.error("Could not copy, long-press the number instead");
+    }
+  };
+
+  const unverifiedCount = group.members.filter((member) => member.status !== "paid").length;
 
   // Any member of a filling group can invite others (Tranche 4 #6).
   const inviteByEmail = async () => {
@@ -209,32 +277,136 @@ function GroupCard({ group, userId }: { group: GroupDetails; userId: string }) {
       {payable && !myPaid && (
         <div className="mt-4 rounded-xl bg-primary/15 p-3">
           <p className="text-sm font-semibold">
-            Pay {group.club_name} {formatPrice(Number(group.share_amount))}, then the club marks
-            you paid and emails your QR pass.
+            Pay {group.club_name} {formatPrice(Number(group.share_amount))}, then the club
+            verifies your share.
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+
+          {/* Where the money goes: the club's handles, visible to EVERY member. */}
+          <div className="mt-2 space-y-2">
             {group.club_venmo && (
-              <Button
-                size="sm"
-                onClick={() =>
-                  openVenmo(group.club_venmo!, `Cornell Craves split: ${group.item_name}`)
-                }
-              >
-                Pay my share on Venmo
-              </Button>
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-raised px-3 py-2">
+                <p className="min-w-0 truncate text-xs text-ink-muted">
+                  Venmo{" "}
+                  <span className="ml-1 font-mono text-sm text-ink">
+                    @{group.club_venmo.replace(/^@/, "")}
+                  </span>
+                </p>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() =>
+                    openVenmo(group.club_venmo!, `Cornell Craves split: ${group.item_name}`)
+                  }
+                >
+                  Pay my share
+                </Button>
+              </div>
             )}
             {group.club_zelle && (
-              <span className="text-xs text-ink-muted">
-                Zelle <span className="font-mono text-ink">{group.club_zelle}</span>
-              </span>
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-raised px-3 py-2">
+                <p className="min-w-0 truncate text-xs text-ink-muted">
+                  Zelle <span className="ml-1 font-mono text-sm text-ink">{group.club_zelle}</span>
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void copyZelle()}
+                  aria-label="Copy Zelle number"
+                  className="shrink-0 px-2.5 text-ink-muted"
+                >
+                  <Copy className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
             )}
+            {!group.club_venmo && !group.club_zelle && (
+              <p className="text-xs text-ink-muted">
+                This club has not added payment handles yet; check the listing page or contact
+                them directly.
+              </p>
+            )}
+          </div>
+
+          {/* Each member says how THEY are paying, so the club can match it. */}
+          <div className="mt-3 border-t border-border/60 pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              How are you paying your share?
+            </p>
+            <div className="mt-1.5 flex gap-2" role="radiogroup" aria-label="Your payment method">
+              {(["venmo", "zelle"] as const).map((method) => (
+                <button
+                  key={method}
+                  type="button"
+                  role="radio"
+                  aria-checked={payMethod === method}
+                  onClick={() => pickMethod(method)}
+                  className={cn(
+                    "min-h-9 rounded-full border px-3.5 py-1.5 text-xs font-semibold capitalize transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
+                    payMethod === method
+                      ? "border-ink bg-ink text-surface-raised"
+                      : "border-border bg-surface-raised text-ink hover-fine:border-primary",
+                  )}
+                >
+                  {method}
+                </button>
+              ))}
+            </div>
+            {payMethod && (
+              <div className="mt-2 flex gap-2">
+                <Input
+                  value={payHandle}
+                  onChange={(e) => setPayHandle(e.target.value)}
+                  placeholder={payMethod === "venmo" ? "@your-venmo" : "netid@cornell.edu or phone"}
+                  aria-label={payMethod === "venmo" ? "Your Venmo username" : "Your Zelle email or phone"}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  loading={savingPay}
+                  onClick={() => void savePayment()}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
+            <p className="mt-1.5 text-xs text-ink-muted">
+              {myMember?.payment_method
+                ? `Saved: ${myMember.payment_method === "venmo" ? "Venmo" : "Zelle"}${myMember.payment_handle ? `, ${myMember.payment_handle}` : ""}. The club matches your payment to this.`
+                : "Tell the club which handle the money comes from so they can verify you faster."}
+            </p>
           </div>
         </div>
       )}
 
-      {myPaid && group.my_qr && group.status !== "canceled" && (
+      {/* Passes unlock only once EVERY member's share is verified, matching the
+          email behavior. Until then, a verified member sees a waiting note. */}
+      {myPaid && group.status !== "paid" && group.status !== "canceled" && (
+        <div className="mt-4 rounded-xl border border-dashed border-border p-3 text-sm text-ink-muted">
+          Your share is verified. Your QR pass and pickup code unlock (and are emailed) once the
+          club verifies everyone
+          {unverifiedCount > 0 &&
+            `, ${unverifiedCount} ${unverifiedCount === 1 ? "member" : "members"} to go`}
+          .
+        </div>
+      )}
+
+      {myPaid && group.status === "paid" && group.my_qr && (
         <div className="mt-4">
           <QRCodeView token={group.my_qr} label="Your pickup pass (yours only)" />
+          {group.my_pickup_code && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-semibold text-ink-muted">
+                Scanner not working? Show the pass code
+              </summary>
+              <p className="mt-2 text-xs text-ink-muted">
+                Read this {group.my_pickup_code.length}-character code to the club. It is the
+                same one in your email.
+              </p>
+              <p className="mt-1.5 rounded-xl bg-surface p-3 text-center font-mono text-lg font-bold tracking-[0.2em] text-ink">
+                {group.my_pickup_code}
+              </p>
+            </details>
+          )}
         </div>
       )}
 
@@ -359,7 +531,16 @@ export default function MyOrders() {
               </h2>
               <div className="mt-3 space-y-3">
                 {groups.map((group) => (
-                  <GroupCard key={group.id} group={group} userId={user!.id} />
+                  <GroupCard
+                    key={group.id}
+                    group={group}
+                    userId={user!.id}
+                    defaultHandles={{
+                      venmo: profile?.venmo_id ?? "",
+                      zelle: profile?.zelle_id ?? "",
+                    }}
+                    onChanged={() => void load()}
+                  />
                 ))}
               </div>
             </section>

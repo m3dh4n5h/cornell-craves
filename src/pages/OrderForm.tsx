@@ -287,6 +287,17 @@ export default function OrderForm() {
     setSplitType(sizes[0] ?? 2);
   };
 
+  // Best-effort: attach the creator's "which member recommended you?" pick to
+  // the group, mirroring set_order_recommender on solo orders.
+  const saveGroupRecommender = async (groupId: string) => {
+    if (!recommender) return;
+    const { error: recError } = await supabase.rpc("set_group_recommender", {
+      p_group_id: groupId,
+      p_value: recommender,
+    });
+    if (recError) console.warn("group recommender not saved:", recError.message);
+  };
+
   const createGroup = async () => {
     if (!listing || !splitItem) {
       toast.error("Pick the item to split.");
@@ -310,6 +321,7 @@ export default function OrderForm() {
       return;
     }
     const result = data as unknown as { group_id: string; open_token: string | null };
+    await saveGroupRecommender(result.group_id);
     if (result.open_token) {
       setCreatedGroup({ groupId: result.group_id, token: result.open_token });
     } else {
@@ -337,6 +349,8 @@ export default function OrderForm() {
       return;
     }
     const result = data as unknown as { group_id: string; open_token?: string | null; joined: boolean };
+    // Only the creator of a fresh group can set the recommender.
+    if (!result.joined) await saveGroupRecommender(result.group_id);
     if (result.joined) {
       toast.success("You joined an open group. Track it in My orders.");
       navigate("/orders");
@@ -451,6 +465,34 @@ export default function OrderForm() {
       </div>
     );
   }
+
+  // "Which member recommended you?" applies to solo orders AND splits, so it
+  // renders in both modes instead of vanishing when split mode turns on.
+  const recommenderSection =
+    listing.recommender_enabled && (listing.clubs?.member_options?.length ?? 0) > 0 ? (
+      <section className="rounded-2xl border border-border bg-surface-raised p-4">
+        <Label htmlFor="order-recommender" className="text-base font-bold">
+          Which member recommended you?
+        </Label>
+        <p className="mt-1 text-xs text-ink-muted">
+          Optional. Helps {listing.clubs?.name ?? "the club"} credit the member who sent you.
+        </p>
+        <div className="mt-3">
+          <Select
+            id="order-recommender"
+            value={recommender}
+            onChange={(e) => setRecommender(e.target.value)}
+          >
+            <option value="">No one in particular</option>
+            {listing.clubs!.member_options.map((member) => (
+              <option key={member} value={member}>
+                {member}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </section>
+    ) : null;
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 py-8">
@@ -608,7 +650,10 @@ export default function OrderForm() {
             ) : (
               <div>
                 <h2 className="text-base font-bold">What are you splitting?</h2>
-                <p className="mt-1 text-xs text-ink-muted">
+                <p className="mt-1 text-xs font-medium text-ink">
+                  Click on the item you are splitting.
+                </p>
+                <p className="mt-0.5 text-xs text-ink-muted">
                   Only items that divide evenly can be split, so everyone gets whole units.
                 </p>
                 <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label="Item to split">
@@ -747,6 +792,8 @@ export default function OrderForm() {
             )}
           </section>
         )}
+
+        {splitMode && recommenderSection}
         </>
         )}
 
@@ -818,31 +865,7 @@ export default function OrderForm() {
           </AnimatePresence>
         </section>
 
-        {/* Recommender (optional) */}
-        {listing.recommender_enabled && (listing.clubs?.member_options?.length ?? 0) > 0 && (
-          <section className="rounded-2xl border border-border bg-surface-raised p-4">
-            <Label htmlFor="order-recommender" className="text-base font-bold">
-              Which member recommended you?
-            </Label>
-            <p className="mt-1 text-xs text-ink-muted">
-              Optional. Helps {listing.clubs?.name ?? "the club"} credit the member who sent you.
-            </p>
-            <div className="mt-3">
-              <Select
-                id="order-recommender"
-                value={recommender}
-                onChange={(e) => setRecommender(e.target.value)}
-              >
-                <option value="">No one in particular</option>
-                {listing.clubs!.member_options.map((member) => (
-                  <option key={member} value={member}>
-                    {member}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </section>
-        )}
+        {recommenderSection}
 
         {/* 5-6. Payment */}
         <section className="rounded-2xl border border-border bg-surface-raised p-4">

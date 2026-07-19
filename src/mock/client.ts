@@ -192,6 +192,8 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   admin_insights: () => fx.adminInsights,
   create_order: () => "o-new-demo",
   set_order_recommender: () => null,
+  set_group_recommender: () => null,
+  set_group_member_payment: () => null,
   create_order_group: () => ({ group_id: "g-new", open_token: "demo-open-token" }),
   join_or_create_public_group: () => ({ group_id: "g-1", joined: true }),
   get_group_by_token: () => fx.myGroups[0],
