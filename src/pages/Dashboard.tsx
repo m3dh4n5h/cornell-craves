@@ -10,6 +10,7 @@ import {
   PackageOpen,
   Plus,
   ReceiptText,
+  RotateCcw,
   ShieldQuestion,
   Tag,
   Users,
@@ -973,6 +974,7 @@ function ListingRow({
   onEdit,
   onDuplicate,
   onToggleActive,
+  onRelaunch,
   onEndNow,
   onPost,
   onDelete,
@@ -983,6 +985,7 @@ function ListingRow({
   onEdit: () => void;
   onDuplicate: () => void;
   onToggleActive: () => void;
+  onRelaunch: () => void;
   onEndNow: () => void;
   onPost: () => void;
   onDelete: () => void;
@@ -1015,7 +1018,10 @@ function ListingRow({
             `, rated ${Number(listing.avg_rating).toFixed(1)} (${listing.review_count})`}
         </p>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {/* min-w-0 (not shrink-0) so the group can compress and wrap its buttons
+          on narrow screens instead of overflowing the card; on >=sm it sits
+          compactly to the right like before. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full sm:shrink-0">
         {canPost && (
           <Button size="sm" loading={busy} onClick={onPost}>
             Post now
@@ -1033,9 +1039,19 @@ function ListingRow({
           <Copy className="size-3.5" aria-hidden="true" />
           Duplicate
         </Button>
-        {!held && (
+        {/* Deactivate/Reactivate only makes sense while the clock is running:
+            the feed and order form both require a future end time, so flipping
+            `active` on an ENDED drop changed nothing. Ended drops get Relaunch
+            instead, which reopens them with a fresh window. */}
+        {!held && !timeLeft.expired && (
           <Button variant="ghost" size="sm" loading={busy} onClick={onToggleActive}>
             {listing.active ? "Deactivate" : "Reactivate"}
+          </Button>
+        )}
+        {!held && timeLeft.expired && (
+          <Button variant="secondary" size="sm" loading={busy} onClick={onRelaunch}>
+            <RotateCcw className="size-3.5" aria-hidden="true" />
+            Relaunch
           </Button>
         )}
         {live && (
@@ -1307,8 +1323,39 @@ export default function Dashboard() {
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success(listing.active ? "Listing deactivated" : "Listing reactivated");
+      toast.success(
+        listing.active
+          ? "Listing deactivated. It is hidden from the feed until you reactivate it."
+          : "Listing reactivated and back on the feed.",
+      );
       await refetch();
+    }
+    setBusyId(null);
+  };
+
+  // An ENDED drop can't come back by flipping `active`: the feed and the order
+  // form both require a future end time, so the old Reactivate button silently
+  // did nothing. Relaunch reopens it properly with a fresh 48-hour window
+  // (same listing, so reviews, Q&A, and past orders stay attached).
+  const relaunch = async (listing: ListingWithClub) => {
+    const until = new Date(Date.now() + 48 * 3_600_000);
+    if (
+      !window.confirm(
+        `Relaunch "${listing.title}"? It returns to the feed and takes orders until ${formatExpiry(until.toISOString())}. You can change the end time with Edit afterwards.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(listing.id);
+    const { error } = await supabase
+      .from("listings")
+      .update({ active: true, expires_at: until.toISOString() })
+      .eq("id", listing.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Drop relaunched for 48 hours. Edit it to fine-tune the end time.");
+      await Promise.all([refetch(), refetchStats()]);
     }
     setBusyId(null);
   };
@@ -1452,6 +1499,7 @@ export default function Dashboard() {
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onToggleActive={() => void toggleActive(listing)}
+                onRelaunch={() => void relaunch(listing)}
                 onEndNow={() => void endNow(listing)}
                 onPost={() => void publishDraft(listing)}
                 onDelete={() => void deleteDraft(listing)}
