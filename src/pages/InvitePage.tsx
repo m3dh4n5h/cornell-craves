@@ -8,6 +8,7 @@ import { brandInitials, brandTint } from "@/lib/brands";
 import { formatPrice } from "@/lib/format";
 import { GROUP_STATUS_META } from "@/lib/groups";
 import { GroupMembers } from "@/components/GroupMembers";
+import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { GoogleButton } from "@/components/GoogleButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,7 @@ export default function InvitePage() {
   const [group, setGroup] = useState<GroupDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -64,15 +66,19 @@ export default function InvitePage() {
   const isMember = Boolean(user && group.members.some((member) => member.user_id === user.id));
   const joinable = group.status === "filling" && !isMember;
 
-  const accept = async () => {
+  const accept = async (ackVersion: string) => {
     setAccepting(true);
-    const { error } = await supabase.rpc("accept_group_invite", { p_token: token });
+    const { error } = await supabase.rpc("accept_group_invite", {
+      p_token: token,
+      p_ack_version: ackVersion,
+    });
     setAccepting(false);
+    setRulesOpen(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success("You are in. Pay your share once the group fills.");
+    toast.success("You're in. You'll pay your share once the group fills and orders close.");
     navigate("/orders");
   };
 
@@ -153,7 +159,7 @@ export default function InvitePage() {
           </div>
         ) : (
           <div className="flex gap-2">
-            <Button className="flex-1" size="lg" loading={accepting} onClick={() => void accept()}>
+            <Button className="flex-1" size="lg" loading={accepting} onClick={() => setRulesOpen(true)}>
               Join and split
             </Button>
             <Button variant="ghost" size="lg" onClick={() => navigate("/")}>
@@ -162,6 +168,15 @@ export default function InvitePage() {
           </div>
         )}
       </div>
+
+      <SplitRulesDialog
+        open={rulesOpen}
+        audience="student"
+        confirmLabel="Agree & join"
+        busy={accepting}
+        onAccept={(version) => void accept(version)}
+        onClose={() => setRulesOpen(false)}
+      />
     </div>
   );
 }

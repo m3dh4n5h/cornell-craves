@@ -96,14 +96,19 @@ const noGroupsListing = await seedListing(noGroupsClub.id, "Groups off drop", [
   { name: "Dozen", price: 24, quantity: 12 },
 ]);
 
-const createGroup = (user, listingId, item, ways, emails = [], visibility = "public") =>
+const ACK = "test-rules-v1"; // stand-in for SPLIT_RULES_VERSION
+
+const createGroup = (user, listingId, item, ways, emails = [], visibility = "public", ack = ACK) =>
   asUser(db, user, async () => {
     const { rows } = await db.query(
-      `select public.create_order_group($1, $2, $3, $4, $5) as res`,
-      [listingId, item, ways, emails, visibility],
+      `select public.create_order_group($1, $2, $3, $4, $5, $6) as res`,
+      [listingId, item, ways, emails, visibility, ack],
     );
     return rows[0].res;
   });
+
+const acceptInvite = (user, token, ack = ACK) =>
+  asUser(db, user, () => db.query(`select public.accept_group_invite($1, $2)`, [token, ack]));
 
 const groupRow = async (id) =>
   (await db.query(`select * from public.order_groups where id = $1`, [id])).rows[0];
@@ -112,11 +117,22 @@ const membersOf = async (id) =>
 const payload = async (id) =>
   (await db.query(`select public.group_payload($1) as p`, [id])).rows[0].p;
 
+// Force a group's clocks into the past so the hourly job acts on it, then run
+// the job (as the system would). Mirrors real time passing.
+const expireGroupClocks = async (id, { order = true, payment = false } = {}) => {
+  if (order) await db.query(`update public.order_groups set order_deadline = now() - interval '1 minute' where id = $1`, [id]);
+  if (payment) await db.query(`update public.order_groups set deadline = now() - interval '1 minute' where id = $1`, [id]);
+};
+const runDeadlineJob = () => db.query(`select public.process_group_deadlines() as r`).then((x) => x.rows[0].r);
+
 // =====================================================================
 console.log("S1: creation guards");
 
-let r = await attempt(() => asUser(db, null, () => db.query(`select public.create_order_group($1,'Dozen',2,'{}','public')`, [mainListing])));
+let r = await attempt(() => asUser(db, null, () => db.query(`select public.create_order_group($1,'Dozen',2,'{}','public',$2)`, [mainListing, ACK])));
 check("anonymous caller cannot create a group", !r.ok);
+
+r = await attempt(() => createGroup(alice, mainListing, "Dozen", 2, [], "public", null));
+check("creating without accepting the rules is rejected", !r.ok, r.ok ? "was accepted" : "");
 
 r = await attempt(() => createGroup(alice, mainListing, "Dozen", 5));
 check("non-divisor split rejected (12-box, 5 ways)", !r.ok, r.ok ? "was accepted" : "");
@@ -159,21 +175,27 @@ console.log("\nS2: joining, filling, invitations");
 const pub = await createGroup(bob, mainListing, "Sixpack", 2, [], "public");
 const pubToken = pub.open_token;
 
-r = await attempt(() => asUser(db, outsider, () => db.query(`select public.accept_group_invite($1)`, [pubToken])));
+r = await attempt(() => acceptInvite(outsider, pubToken));
 check("non-Cornell account cannot join a split (023 trigger)", !r.ok);
 
-r = await attempt(() => asUser(db, bob, () => db.query(`select public.accept_group_invite($1)`, [pubToken])));
+r = await attempt(() => asUser(db, dana, () => db.query(`select public.accept_group_invite($1, null)`, [pubToken])));
+check("joining without accepting the rules is rejected", !r.ok, r.ok ? "was accepted" : "");
+
+r = await attempt(() => acceptInvite(bob, pubToken));
 check("creator re-joining own group is idempotent", r.ok && (await membersOf(pub.group_id)).length === 1);
 
-await asUser(db, charlie, () => db.query(`select public.accept_group_invite($1)`, [pubToken]));
+await acceptInvite(charlie, pubToken);
 let g = await groupRow(pub.group_id);
 let ms = await membersOf(pub.group_id);
 check("group fills -> status full", g.status === "full");
-check("all members flip to pending_payment on fill", ms.every((m) => m.status === "pending_payment"));
-const deadlineMs = new Date(g.deadline).getTime() - Date.now();
-check("payment deadline reset to ~24h on fill", deadlineMs > 23 * 3600e3 && deadlineMs < 25 * 3600e3);
+check("filling records each member's acknowledgment", ms.every((m) => m.acknowledged_at != null && m.acknowledged_rules_version === ACK));
+// New model: a full group owes nothing yet. Payment opens only at the order
+// deadline, so members stay 'accepted' and the clock is still the order window.
+check("members stay 'accepted' on fill (payment not open yet)", ms.every((m) => m.status === "accepted"));
+check("full group's clock is still the order deadline, not a 24h payment window",
+  new Date(g.deadline).getTime() === new Date(g.order_deadline).getTime());
 
-r = await attempt(() => asUser(db, dana, () => db.query(`select public.accept_group_invite($1)`, [pubToken])));
+r = await attempt(() => acceptInvite(dana, pubToken));
 check("joining a FULL group rejected", !r.ok);
 
 // Private-group personal invite: invite dana, she declines, link dies.
@@ -210,9 +232,10 @@ let bobM = p.members.find((m) => m.user_id === bob.id);
 check("member can change method while unpaid (venmo -> zelle)", bobM?.payment_method === "zelle" && bobM?.payment_handle === "bob7@cornell.edu");
 check("club-visible payload carries method + handle", p.members.some((m) => m.payment_method === "zelle"));
 
-// Verify bob (what the edge function does per member).
-await db.query(`update public.order_group_members set status='paid', qr_encrypted='tok-bob', pickup_code='ABCDEFGH12' where group_id=$1 and user_id=$2`, [pub.group_id, bob.id]);
+// Open payment (order deadline reached), then verify bob (what the club does).
 await db.query(`update public.order_groups set status='payment_in_progress' where id=$1`, [pub.group_id]);
+await db.query(`update public.order_group_members set status='pending_payment' where group_id=$1`, [pub.group_id]);
+await db.query(`update public.order_group_members set status='paid', qr_encrypted='tok-bob', pickup_code='ABCDEFGH12' where group_id=$1 and user_id=$2`, [pub.group_id, bob.id]);
 r = await attempt(() => asUser(db, bob, () => db.query(`select public.set_group_member_payment($1,'venmo','sneaky-swap')`, [pub.group_id])));
 check("payment details locked after the club verifies the member", !r.ok);
 
@@ -273,9 +296,9 @@ check("listing without recommender enabled rejects it", !r.ok);
 // =====================================================================
 console.log("\nS6: public-group matching (join_or_create_public_group)");
 
-const joinPublic = (user, listingId, item, ways) =>
+const joinPublic = (user, listingId, item, ways, ack = ACK) =>
   asUser(db, user, async () => {
-    const { rows } = await db.query(`select public.join_or_create_public_group($1,$2,$3) as res`, [listingId, item, ways]);
+    const { rows } = await db.query(`select public.join_or_create_public_group($1,$2,$3,$4) as res`, [listingId, item, ways, ack]);
     return rows[0].res;
   });
 
@@ -301,7 +324,149 @@ check("solo path also rejects non-divisor sizes", !r.ok, r.ok ? "was accepted" :
 r = await attempt(() => joinPublic(dana, mainListing, "Sixpack", 6));
 check("solo path allows any divisor the UI offers (6-way)", r.ok, r.ok ? "" : r.message);
 
-r = await attempt(() => joinPublic(dana, noGroupsListing, "Dozen", 2));
+r = await attempt(() => joinPublic(dana, noGroupsListing, "Dozen", 2, ACK));
 check("solo path respects the club's groups toggle", !r.ok, r.ok ? "was accepted" : "");
+
+r = await attempt(() => joinPublic(dana, mainListing, "Dozen", 2, null));
+check("solo path also requires the rules acknowledgment", !r.ok, r.ok ? "was accepted" : "");
+
+// =====================================================================
+console.log("\nS7: deadline processing (the hourly job)");
+
+// A. Full group + order deadline passed -> payment opens for 24h, members owe.
+const d1 = await createGroup(alice, mainListing, "Sixpack", 2, [], "public");
+await acceptInvite(bob, d1.open_token);
+check("S7a group is full and pre-payment", (await groupRow(d1.group_id)).status === "full");
+await expireGroupClocks(d1.group_id, { order: true });
+let job = await runDeadlineJob();
+let g7 = await groupRow(d1.group_id);
+check("S7a full + order deadline passed -> payment_in_progress", g7.status === "payment_in_progress", `status ${g7.status}`);
+check("S7a members now owe payment", (await membersOf(d1.group_id)).every((m) => m.status === "pending_payment"));
+const payWindow = new Date(g7.deadline).getTime() - Date.now();
+check("S7a payment window is ~24h from the order close", payWindow > 23 * 3600e3 && payWindow <= 24 * 3600e3 + 60e3, `${Math.round(payWindow / 3600e3)}h`);
+check("S7a job reported one opened", job.opened === 1);
+
+// B. Filling group that never fills by its order deadline -> canceled.
+const d2 = await createGroup(alice, mainListing, "Sixpack", 3, [], "public"); // needs 3, only creator in
+await expireGroupClocks(d2.group_id, { order: true });
+job = await runDeadlineJob();
+check("S7b unfilled group past order deadline -> canceled", (await groupRow(d2.group_id)).status === "canceled");
+
+// C. Payable group whose 24h elapsed with someone unpaid -> canceled.
+const d3 = await createGroup(alice, mainListing, "Sixpack", 2, [], "public");
+await acceptInvite(bob, d3.open_token);
+await expireGroupClocks(d3.group_id, { order: true });
+await runDeadlineJob(); // opens payment
+await db.query(`update public.order_group_members set status='paid' where group_id=$1 and user_id=$2`, [d3.group_id, alice.id]); // only alice pays
+await expireGroupClocks(d3.group_id, { payment: true });
+await runDeadlineJob();
+check("S7c payment window elapsed with someone unpaid -> canceled", (await groupRow(d3.group_id)).status === "canceled");
+
+// D. Everyone paid before the window closes -> NOT canceled by the job.
+const d4 = await createGroup(alice, mainListing, "Sixpack", 2, [], "public");
+await acceptInvite(bob, d4.open_token);
+await expireGroupClocks(d4.group_id, { order: true });
+await runDeadlineJob();
+await db.query(`update public.order_group_members set status='paid' where group_id=$1`, [d4.group_id]);
+await db.query(`update public.order_groups set status='paid' where id=$1`, [d4.group_id]); // edge fn would do this
+await expireGroupClocks(d4.group_id, { payment: true });
+await runDeadlineJob();
+check("S7d fully-paid group is never auto-canceled", (await groupRow(d4.group_id)).status === "paid");
+
+// =====================================================================
+console.log("\nS8: club deadline controls");
+
+// Extend the order window so a would-be-canceled filling group survives.
+const e1 = await createGroup(alice, mainListing, "Sixpack", 3, [], "public");
+await expireGroupClocks(e1.group_id, { order: true });
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('order', 24, $1, null)`, [e1.group_id])));
+check("club extends a filling group's order deadline", r.ok, r.ok ? "" : r.message);
+await runDeadlineJob();
+check("extended filling group is NOT canceled", (await groupRow(e1.group_id)).status === "filling");
+
+// Non-owner cannot extend.
+r = await attempt(() => asUser(db, noGroupsClub, () => db.query(`select public.club_extend_deadlines('order', 24, $1, null)`, [e1.group_id])));
+check("a different club cannot extend someone else's group", !r.ok);
+
+// Open payment early on a full group (club stops accepting orders now).
+const e2 = await createGroup(alice, mainListing, "Sixpack", 2, [], "public");
+await acceptInvite(bob, e2.open_token);
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.open_group_payment($1, null)`, [e2.group_id])));
+check("club opens payment early on a full group", r.ok, r.ok ? "" : r.message);
+let e2g = await groupRow(e2.group_id);
+check("opened group is payable with a fresh 24h window", e2g.status === "payment_in_progress" && new Date(e2g.deadline).getTime() - Date.now() > 23 * 3600e3);
+check("opening payment sets members to owe", (await membersOf(e2.group_id)).every((m) => m.status === "pending_payment"));
+
+// Extend the payment window for a group already collecting.
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('payment', 12, $1, null)`, [e2.group_id])));
+check("club extends an open payment window", r.ok && (await groupRow(e2.group_id)).status === "payment_in_progress");
+
+// Extend ALL groups on a listing at once (scope = listing).
+const e3 = await createGroup(alice, mainListing, "Dozen", 3, [], "public");
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('order', 24, null, $1) as res`, [mainListing])));
+check("club extends every group on a listing in one call", r.ok && r.value.rows[0].res.changed >= 1, r.ok ? "" : r.message);
+
+// Reactivate: a full-but-canceled group reopens for payment; a never-filled one reopens for filling.
+const rc1 = await createGroup(alice, mainListing, "Sixpack", 2, [], "public");
+await acceptInvite(bob, rc1.open_token);
+await db.query(`update public.order_groups set status='canceled' where id=$1`, [rc1.group_id]);
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.reactivate_group($1) as res`, [rc1.group_id])));
+check("reactivate a filled-but-canceled group -> payment mode", r.ok && r.value.rows[0].res.mode === "payment", r.ok ? `mode ${r.value?.rows?.[0]?.res?.mode}` : r.message);
+check("reactivated-to-payment group is payable", ["payment_in_progress", "reactivated"].includes((await groupRow(rc1.group_id)).status));
+
+const rc2 = await createGroup(alice, mainListing, "Sixpack", 3, [], "public"); // never filled
+await db.query(`update public.order_groups set status='canceled' where id=$1`, [rc2.group_id]);
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.reactivate_group($1) as res`, [rc2.group_id])));
+check("reactivate a never-filled canceled group -> filling mode", r.ok && r.value.rows[0].res.mode === "fill", r.ok ? `mode ${r.value?.rows?.[0]?.res?.mode}` : r.message);
+check("reactivated-to-filling group accepts members again", (await groupRow(rc2.group_id)).status === "filling");
+
+// =====================================================================
+console.log("\nS9: club enable/disable acknowledgment");
+
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.set_club_groups_enabled(true, null)`)));
+check("enabling splits without acknowledging is rejected", !r.ok);
+
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.set_club_groups_enabled(true, 'club-rules-v1')`)));
+check("enabling splits with acknowledgment succeeds", r.ok, r.ok ? "" : r.message);
+let clubRow = (await db.query(`select groups_enabled, split_ack_at, split_ack_version from public.clubs where id=$1`, [clubUser.id])).rows[0];
+check("club acknowledgment is saved (timestamp + version)", clubRow.groups_enabled === true && clubRow.split_ack_at != null && clubRow.split_ack_version === "club-rules-v1");
+
+await asUser(db, clubUser, () => db.query(`select public.set_club_groups_enabled(false, null)`));
+check("disabling splits needs no acknowledgment", (await db.query(`select groups_enabled from public.clubs where id=$1`, [clubUser.id])).rows[0].groups_enabled === false);
+
+r = await attempt(() => asUser(db, alice, () => db.query(`select public.set_club_groups_enabled(true, 'x')`)));
+check("a student cannot toggle a club's split feature", !r.ok);
+
+// =====================================================================
+console.log("\nS10: control guard rails");
+
+// Re-enable so later checks have a working club (S9 left it disabled).
+await asUser(db, clubUser, () => db.query(`select public.set_club_groups_enabled(true, 'club-rules-v1')`));
+
+// Open payment only affects FULL groups, never a still-filling one.
+const gr1 = await createGroup(alice, mainListing, "Sixpack", 3, [], "public"); // only 1 of 3
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.open_group_payment($1, null) as res`, [gr1.group_id])));
+check("opening payment on a filling group opens nothing", r.ok && r.value.rows[0].res.opened === 0);
+check("that filling group is untouched", (await groupRow(gr1.group_id)).status === "filling");
+
+// Bad target / hours are rejected.
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('sideways', 24, $1, null)`, [gr1.group_id])));
+check("invalid extend target rejected", !r.ok);
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('order', 0, $1, null)`, [gr1.group_id])));
+check("zero-hour extension rejected", !r.ok);
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('order', 9999, $1, null)`, [gr1.group_id])));
+check("absurd extension rejected", !r.ok);
+
+// Extending the payment window does nothing to a filling group (wrong phase).
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.club_extend_deadlines('payment', 24, $1, null) as res`, [gr1.group_id])));
+check("payment extension no-ops on a filling group", r.ok && r.value.rows[0].res.changed === 0);
+
+// Reactivate refuses a non-canceled group.
+r = await attempt(() => asUser(db, clubUser, () => db.query(`select public.reactivate_group($1)`, [gr1.group_id])));
+check("reactivate refuses a group that is not canceled", !r.ok);
+
+// A non-owner cannot open payment or reactivate either.
+r = await attempt(() => asUser(db, noGroupsClub, () => db.query(`select public.open_group_payment($1, null)`, [gr1.group_id])));
+check("non-owner cannot open payment", !r.ok);
 
 summary();

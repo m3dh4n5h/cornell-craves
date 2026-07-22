@@ -649,9 +649,27 @@ interface GroupRecord {
   item_name: string;
   item_price: number;
   total_people: number;
+  filled_count: number;
   deadline: string;
+  order_deadline: string | null;
   status: string;
   created_by: string;
+}
+
+// Every time we show a student is Ithaca time. America/New_York carries the
+// EST/EDT rules, so this follows the clock change automatically.
+function formatEastern(iso: string | null | undefined): string {
+  if (!iso) return "the deadline";
+  return (
+    new Date(iso).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }) + " ET"
+  );
 }
 
 async function groupMemberEmails(groupId: string): Promise<{ user_id: string; email: string }[]> {
@@ -697,16 +715,45 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
   const share = dollars(group.item_price / Math.max(group.total_people, 1));
 
   if (group.status === "full") {
-    // Group full + payment unlocked, one email covering both.
+    // Every spot taken, but the payment clock has NOT started. Nobody owes
+    // anything until the club stops accepting orders (the order deadline).
     return emailGroupMembers(
       group,
-      "Your split order is full, payment unlocked",
+      "Your split order is full",
       paragraph(
-        `All ${group.total_people} spots for ${escapeHtml(group.item_name)} are taken. Everyone now pays their share of ${share}.`,
+        `All ${group.total_people} spots for ${escapeHtml(group.item_name)} are taken. Your share will be ${share}.`,
       ) +
         paragraph(
-          "You have 24 hours. On your orders page, pick Venmo or Zelle and pay the club. QR passes are emailed to everyone only after the club verifies EVERY member's share. Unpaid groups cancel automatically at the deadline.",
+          `You owe nothing yet. Payment opens when ${escapeHtml(
+            "the club",
+          )} closes orders (by ${formatEastern(group.order_deadline)}), and then you will have 24 hours. We will email you, and it shows on your Orders page. Nothing to do right now.`,
         ),
+    );
+  }
+  if (group.status === "payment_in_progress" && previousStatus === "full") {
+    // Orders closed -> the 24h payment window is now open.
+    return emailGroupMembers(
+      group,
+      "Time to pay your split share",
+      paragraph(
+        `Orders for ${escapeHtml(group.item_name)} are closed, so payment is now open. Pay your ${share} share by ${formatEastern(group.deadline)} (24 hours).`,
+      ) +
+        paragraph(
+          "On your Orders page, pick Venmo or Zelle and pay the club. QR passes are emailed to everyone only after the club verifies EVERY member's share. If anyone has not paid by the deadline, the group cancels automatically and nobody is charged.",
+        ),
+    );
+  }
+  if (group.status === "filling" && previousStatus === "canceled") {
+    // Reactivated a group that had not filled: it is taking members again.
+    return emailGroupMembers(
+      group,
+      "Your split order is open again",
+      paragraph(
+        `The club reopened the split for ${escapeHtml(group.item_name)}. It needs ${Math.max(
+          group.total_people - group.filled_count,
+          0,
+        )} more to fill by ${formatEastern(group.order_deadline)}.`,
+      ) + paragraph("You still owe nothing until it fills and orders close."),
     );
   }
   if (group.status === "canceled") {
@@ -714,7 +761,9 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
       group,
       "Your split order was canceled",
       paragraph(
-        `The payment window for ${escapeHtml(group.item_name)} closed before everyone paid, so the group was canceled.`,
+        `The split for ${escapeHtml(group.item_name)} was canceled${
+          previousStatus === "filling" ? " because it did not fill in time" : " before everyone paid"
+        }, so nobody was charged.`,
       ) + paragraph("If the club reactivates it, you will get another email with a fresh deadline."),
     );
   }
@@ -723,7 +772,7 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
       group,
       "Your split order is back on",
       paragraph(
-        `The club reactivated the split for ${escapeHtml(group.item_name)}. Anyone who has not paid their ${share} share has 24 hours.`,
+        `The club reactivated the split for ${escapeHtml(group.item_name)}. Anyone who has not paid their ${share} share has 24 hours (by ${formatEastern(group.deadline)}).`,
       ),
     );
   }
@@ -779,8 +828,10 @@ async function verifyGroupPayment(
   if (listing.club_id !== userId) {
     throw new Error("Only the club that owns this listing can verify payments");
   }
-  if (!["full", "payment_in_progress", "reactivated"].includes(group.status)) {
-    throw new Error("This group is not in a payable state");
+  // A group is payable only once payment has opened (order deadline reached, or
+  // the club opened it early). A merely 'full' group still owes nothing.
+  if (!["payment_in_progress", "reactivated"].includes(group.status)) {
+    throw new Error("This group is not collecting payment yet");
   }
 
   const token = await signToken({ g: group.id, m: memberId, ts: Date.now() });
@@ -838,39 +889,19 @@ async function verifyGroupPayment(
   return { ok: true, all_paid: true };
 }
 
-async function reactivateGroup(groupId: string, authHeader: string | null): Promise<{ ok: true }> {
-  const userId = await requireClubUser(authHeader);
-  const { data: group } = await supabase
-    .from("order_groups")
-    .select("*")
-    .eq("id", groupId)
-    .single<GroupRecord>();
-  if (!group) throw new Error("Group not found");
-  const { listing } = await orderContext(group.listing_id);
-  if (listing.club_id !== userId) {
-    throw new Error("Only the club that owns this listing can reactivate groups");
-  }
-  if (group.status !== "canceled") throw new Error("Only canceled groups can be reactivated");
+// Reactivating a canceled group now lives in the process_group_deadlines-era
+// SQL RPC `reactivate_group`, which the club dashboard calls directly (it knows
+// whether to reopen filling vs payment). Kept out of the edge function so the
+// logic has one home and stays testable.
 
-  await supabase
-    .from("order_groups")
-    .update({ status: "reactivated", deadline: new Date(Date.now() + 24 * 3_600_000).toISOString() })
-    .eq("id", groupId);
-  // The status-change webhook emails members.
-  return { ok: true };
-}
-
-async function autoCancelGroups(): Promise<{ canceled: number }> {
-  // Called hourly by pg_cron (see NEXT_STEPS). The status-change webhook
-  // emails each affected group's members.
-  const { data, error } = await supabase
-    .from("order_groups")
-    .update({ status: "canceled" })
-    .in("status", ["filling", "full", "payment_in_progress", "reactivated"])
-    .lt("deadline", new Date().toISOString())
-    .select("id");
+async function processGroupDeadlines(): Promise<Record<string, unknown>> {
+  // Called hourly by pg_cron (see NEXT_STEPS). One SQL function owns every
+  // time-based transition (open payment on full groups when orders close, cancel
+  // groups that never filled, cancel unpaid groups past their window). Each row
+  // change fires the order_groups webhook, which emails the members.
+  const { data, error } = await supabase.rpc("process_group_deadlines");
   if (error) throw error;
-  return { canceled: (data ?? []).length };
+  return (data as Record<string, unknown>) ?? {};
 }
 
 // ---------- Webhook handlers ----------
@@ -1130,19 +1161,15 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(result);
     }
 
-    if (body.action === "reactivate_group" && typeof body.group_id === "string") {
-      const result = await reactivateGroup(body.group_id, req.headers.get("Authorization"));
-      return Response.json(result);
-    }
-
     if (body.action === "delete_account") {
       const result = await deleteAccount(req.headers.get("Authorization"));
       return Response.json({ ok: true, ...result });
     }
 
-    // Called hourly by pg_cron with the service role key.
-    if (body.action === "auto_cancel_groups") {
-      const result = await autoCancelGroups();
+    // Called hourly by pg_cron with the service role key. `auto_cancel_groups`
+    // is kept as an alias so an existing cron schedule keeps working.
+    if (body.action === "process_group_deadlines" || body.action === "auto_cancel_groups") {
+      const result = await processGroupDeadlines();
       return Response.json({ ok: true, ...result });
     }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowLeft, BadgeCheck, ChevronDown, Download, Inbox, TriangleAlert } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ChevronDown, Clock, Download, Inbox, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -166,15 +166,21 @@ function SplitGroupCard({
   group,
   busyId,
   onVerifyMember,
+  onExtend,
+  onOpenPayment,
   onReactivate,
 }: {
   group: GroupDetails;
   busyId: string | null;
   onVerifyMember: (memberId: string) => void;
+  onExtend: (groupId: string, target: "order" | "payment", hours: number) => void;
+  onOpenPayment: (groupId: string) => void;
   onReactivate: (groupId: string) => void;
 }) {
   const status = GROUP_STATUS_META[group.status];
   const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
+  const busy = busyId === group.id;
+  const orderDeadline = group.order_deadline ?? group.deadline;
   return (
     <div className="rounded-2xl border border-dashed border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -197,11 +203,21 @@ function SplitGroupCard({
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={status.variant}>{status.label}</Badge>
-          {(group.status === "filling" || payable) && (
-            <DeadlineTimer deadline={group.deadline} prefix="Deadline" />
+          {group.status === "filling" && (
+            <DeadlineTimer deadline={orderDeadline} prefix="Orders close" />
           )}
+          {group.status === "full" && (
+            <DeadlineTimer deadline={orderDeadline} prefix="Orders close" />
+          )}
+          {payable && <DeadlineTimer deadline={group.deadline} prefix="Pay by" />}
         </div>
       </div>
+
+      {group.status === "full" && (
+        <p className="mt-2 rounded-lg bg-surface px-3 py-2 text-xs text-ink-muted">
+          Full and waiting. Members owe nothing until you close ordering; then they get 24 hours to pay.
+        </p>
+      )}
 
       <ul className="mt-3 divide-y divide-border/60" aria-live="polite">
         {group.members.map((member) => {
@@ -256,17 +272,43 @@ function SplitGroupCard({
         })}
       </ul>
 
-      {group.status === "canceled" && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="mt-3"
-          loading={busyId === group.id}
-          onClick={() => onReactivate(group.id)}
-        >
-          Reactivate group
-        </Button>
-      )}
+      {/* Deadline controls. What the club can do depends on the phase. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {(group.status === "filling" || group.status === "full") && (
+          <>
+            <span className="text-xs font-semibold text-ink-muted">Order deadline:</span>
+            <Button variant="secondary" size="sm" loading={busy} onClick={() => onExtend(group.id, "order", 24)}>
+              <Clock className="size-3.5" aria-hidden="true" />
+              +24h
+            </Button>
+            <Button variant="ghost" size="sm" loading={busy} onClick={() => onExtend(group.id, "order", 48)}>
+              +48h
+            </Button>
+          </>
+        )}
+        {group.status === "full" && (
+          <Button variant="secondary" size="sm" loading={busy} onClick={() => onOpenPayment(group.id)}>
+            Close orders &amp; open payment
+          </Button>
+        )}
+        {payable && (
+          <>
+            <span className="text-xs font-semibold text-ink-muted">Payment deadline:</span>
+            <Button variant="secondary" size="sm" loading={busy} onClick={() => onExtend(group.id, "payment", 24)}>
+              <Clock className="size-3.5" aria-hidden="true" />
+              +24h
+            </Button>
+            <Button variant="ghost" size="sm" loading={busy} onClick={() => onExtend(group.id, "payment", 48)}>
+              +48h
+            </Button>
+          </>
+        )}
+        {group.status === "canceled" && (
+          <Button variant="secondary" size="sm" loading={busy} onClick={() => onReactivate(group.id)}>
+            Reactivate group
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -425,15 +467,64 @@ export default function ClubOrders() {
 
   const reactivateGroup = async (groupId: string) => {
     setGroupBusyId(groupId);
-    const { error } = await supabase.functions.invoke("notify-cravings", {
-      body: { action: "reactivate_group", group_id: groupId },
+    const { data, error } = await supabase.rpc("reactivate_group", { p_group_id: groupId });
+    setGroupBusyId(null);
+    if (error) {
+      toast.error(`Reactivate failed: ${error.message}`);
+      return;
+    }
+    const mode = (data as { mode?: string } | null)?.mode;
+    toast.success(
+      mode === "fill"
+        ? "Group reopened for orders. It has 48 hours to fill."
+        : "Group reopened. Members have 24 hours to pay.",
+    );
+    await refetch();
+  };
+
+  // Extend either the order (fill) window or the payment window, for one group
+  // or every group on a listing. Row changes email members via the webhook.
+  const extendDeadline = async (
+    target: "order" | "payment",
+    hours: number,
+    scope: { groupId?: string; listingId?: string },
+  ) => {
+    setGroupBusyId(scope.groupId ?? scope.listingId ?? null);
+    const { data, error } = await supabase.rpc("club_extend_deadlines", {
+      p_target: target,
+      p_hours: hours,
+      p_group_id: scope.groupId ?? null,
+      p_listing_id: scope.listingId ?? null,
     });
     setGroupBusyId(null);
     if (error) {
-      toast.error(`Reactivate failed: ${await readFnError(error)}`);
+      toast.error(`Could not extend: ${error.message}`);
       return;
     }
-    toast.success("Group reactivated. Members have 24 hours to pay.");
+    const changed = (data as { changed?: number } | null)?.changed ?? 0;
+    toast.success(
+      `Extended the ${target === "order" ? "order" : "payment"} deadline by ${hours}h on ${changed} ${changed === 1 ? "group" : "groups"}.`,
+    );
+    await refetch();
+  };
+
+  const openPayment = async (scope: { groupId?: string; listingId?: string }) => {
+    setGroupBusyId(scope.groupId ?? scope.listingId ?? null);
+    const { data, error } = await supabase.rpc("open_group_payment", {
+      p_group_id: scope.groupId ?? null,
+      p_listing_id: scope.listingId ?? null,
+    });
+    setGroupBusyId(null);
+    if (error) {
+      toast.error(`Could not open payment: ${error.message}`);
+      return;
+    }
+    const opened = (data as { opened?: number } | null)?.opened ?? 0;
+    toast.success(
+      opened > 0
+        ? `Payment opened for ${opened} ${opened === 1 ? "group" : "groups"}. Members have 24 hours.`
+        : "No full groups were waiting to open.",
+    );
     await refetch();
   };
 
@@ -759,6 +850,41 @@ export default function ClubOrders() {
 
                 {open && (
                   <div className="space-y-3 px-3 pb-3">
+                    {/* Bulk split controls: act on every split group on this drop
+                        at once (the club's "for all" option). */}
+                    {(() => {
+                      const hasFilling = sectionGroups.some(
+                        (g) => g.status === "filling" || g.status === "full",
+                      );
+                      const hasFull = sectionGroups.some((g) => g.status === "full");
+                      const hasPayable = sectionGroups.some((g) =>
+                        PAYABLE_GROUP_STATUSES.includes(g.status),
+                      );
+                      if (!hasFilling && !hasPayable) return null;
+                      const listingBusy = groupBusyId === listing.id;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-surface-raised px-3 py-2">
+                          <span className="text-xs font-semibold text-ink-muted">All splits on this drop:</span>
+                          {hasFilling && (
+                            <Button variant="ghost" size="sm" loading={listingBusy} onClick={() => void extendDeadline("order", 24, { listingId: listing.id })}>
+                              <Clock className="size-3.5" aria-hidden="true" />
+                              Order +24h
+                            </Button>
+                          )}
+                          {hasFull && (
+                            <Button variant="ghost" size="sm" loading={listingBusy} onClick={() => void openPayment({ listingId: listing.id })}>
+                              Close orders &amp; open payment
+                            </Button>
+                          )}
+                          {hasPayable && (
+                            <Button variant="ghost" size="sm" loading={listingBusy} onClick={() => void extendDeadline("payment", 24, { listingId: listing.id })}>
+                              <Clock className="size-3.5" aria-hidden="true" />
+                              Payment +24h
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {sectionOrders.map((order) => (
                       <OrderCard
                         key={order.id}
@@ -773,6 +899,8 @@ export default function ClubOrders() {
                         group={group}
                         busyId={groupBusyId}
                         onVerifyMember={(memberId) => void verifyGroupMember(memberId)}
+                        onExtend={(groupId, target, hours) => void extendDeadline(target, hours, { groupId })}
+                        onOpenPayment={(groupId) => void openPayment({ groupId })}
                         onReactivate={(groupId) => void reactivateGroup(groupId)}
                       />
                     ))}

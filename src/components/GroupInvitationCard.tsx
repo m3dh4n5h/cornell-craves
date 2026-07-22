@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { formatPrice } from "@/lib/format";
+import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { GroupDetails } from "@/types/database";
@@ -15,19 +16,33 @@ interface GroupInvitationCardProps {
 /** A pending split-order invitation with accept and decline. */
 export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCardProps) {
   const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
-  const respond = async (action: "accept" | "decline") => {
-    setBusy(action);
-    const { error } =
-      action === "accept"
-        ? await supabase.rpc("accept_group_invite", { p_token: invite.invite_token })
-        : await supabase.rpc("decline_group_invite", { p_token: invite.invite_token });
+  const accept = async (ackVersion: string) => {
+    setBusy("accept");
+    const { error } = await supabase.rpc("accept_group_invite", {
+      p_token: invite.invite_token,
+      p_ack_version: ackVersion,
+    });
+    setBusy(null);
+    setRulesOpen(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("You joined the group");
+    onResponded();
+  };
+
+  const decline = async () => {
+    setBusy("decline");
+    const { error } = await supabase.rpc("decline_group_invite", { p_token: invite.invite_token });
     setBusy(null);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success(action === "accept" ? "You joined the group" : "Invitation declined");
+    toast.success("Invitation declined");
     onResponded();
   };
 
@@ -53,7 +68,7 @@ export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCard
         </div>
       </div>
       <div className="mt-3 flex gap-2">
-        <Button size="sm" loading={busy === "accept"} disabled={busy === "decline"} onClick={() => void respond("accept")}>
+        <Button size="sm" loading={busy === "accept"} disabled={busy === "decline"} onClick={() => setRulesOpen(true)}>
           Accept
         </Button>
         <Button
@@ -61,11 +76,20 @@ export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCard
           size="sm"
           loading={busy === "decline"}
           disabled={busy === "accept"}
-          onClick={() => void respond("decline")}
+          onClick={() => void decline()}
         >
           Decline
         </Button>
       </div>
+
+      <SplitRulesDialog
+        open={rulesOpen}
+        audience="student"
+        confirmLabel="Agree & join"
+        busy={busy === "accept"}
+        onAccept={(version) => void accept(version)}
+        onClose={() => setRulesOpen(false)}
+      />
     </div>
   );
 }

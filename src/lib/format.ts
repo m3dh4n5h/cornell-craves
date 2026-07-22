@@ -15,19 +15,53 @@ export function priceRange(items: ListingItem[]): string | null {
   return min === max ? formatPrice(min) : `${formatPrice(min)} to ${formatPrice(max)}`;
 }
 
-export function formatExpiry(expiresAt: string): string {
-  const date = new Date(expiresAt);
-  const now = new Date();
-  const time = date.toLocaleTimeString("en-US", {
+// Everything time-related in Cornell Craves is Ithaca time. Pin every display
+// to America/New_York so it reads the same for a student checking from another
+// timezone, and so it follows the EST/EDT switch automatically (the IANA zone
+// carries the DST rules; we never hardcode an offset). Deadlines themselves are
+// timestamptz instants computed with fixed intervals (e.g. now() + 24h), so the
+// 24-hour windows stay exactly 24 real hours across a clock change.
+export const APP_TIME_ZONE = "America/New_York";
+
+/** Calendar day (YYYY-MM-DD) an instant falls on in Eastern time. */
+function easternDayKey(date: Date): string {
+  return date.toLocaleDateString("en-CA", { timeZone: APP_TIME_ZONE });
+}
+
+/** Eastern-time clock, e.g. "4:30 PM ET". */
+export function formatEasternTime(iso: string | number | Date): string {
+  const time = new Date(iso).toLocaleTimeString("en-US", {
+    timeZone: APP_TIME_ZONE,
     hour: "numeric",
     minute: "2-digit",
   });
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) return `Today at ${time}`;
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${time}`;
-  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${time} ET`;
+}
+
+/** Eastern-time date + clock, e.g. "Jul 24 at 4:30 PM ET". */
+export function formatEasternDateTime(iso: string | number | Date): string {
+  const date = new Date(iso);
+  const day = date.toLocaleDateString("en-US", {
+    timeZone: APP_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
+  return `${day} at ${formatEasternTime(date)}`;
+}
+
+export function formatExpiry(expiresAt: string): string {
+  const date = new Date(expiresAt);
+  const now = new Date();
+  const time = formatEasternTime(date);
+  const dayKey = easternDayKey(date);
+  if (dayKey === easternDayKey(now)) return `Today at ${time}`;
+  const tomorrow = new Date(now.getTime() + 24 * 3_600_000);
+  if (dayKey === easternDayKey(tomorrow)) return `Tomorrow at ${time}`;
+  const day = date.toLocaleDateString("en-US", {
+    timeZone: APP_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
   return `${day} at ${time}`;
 }
 

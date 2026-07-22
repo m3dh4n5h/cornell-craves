@@ -15,6 +15,7 @@ import { AllergenIcon } from "@/components/AllergenIcon";
 import { VenmoButton } from "@/components/VenmoButton";
 import { SplitOrderToggle } from "@/components/SplitOrderToggle";
 import { SplitTypeSelector, validSplitSizes } from "@/components/SplitTypeSelector";
+import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { GroupInviteLink } from "@/components/GroupInviteLink";
 import { GoogleButton } from "@/components/GoogleButton";
 import { EmptyState } from "@/components/EmptyState";
@@ -78,6 +79,8 @@ export default function OrderForm() {
   // Private (invite-only) vs public (anyone fills open spots) - Tranche 4 #6.
   const [groupVisibility, setGroupVisibility] = useState<"private" | "public">("private");
   const [joiningPublic, setJoiningPublic] = useState(false);
+  // Which split action is waiting on the rules acknowledgment pop-up.
+  const [rulesAction, setRulesAction] = useState<"create" | "join" | null>(null);
 
   // Pre-fill from the signed-in profile; those fields render read-only.
   useEffect(() => {
@@ -298,7 +301,7 @@ export default function OrderForm() {
     if (recError) console.warn("group recommender not saved:", recError.message);
   };
 
-  const createGroup = async () => {
+  const doCreateGroup = async (ackVersion: string) => {
     if (!listing || !splitItem) {
       toast.error("Pick the item to split.");
       return;
@@ -314,8 +317,10 @@ export default function OrderForm() {
       p_split_type: splitType,
       p_invited_emails: emails,
       p_visibility: groupVisibility,
+      p_ack_version: ackVersion,
     });
     setCreatingGroup(false);
+    setRulesAction(null);
     if (rpcError) {
       toast.error(rpcError.message);
       return;
@@ -332,7 +337,7 @@ export default function OrderForm() {
   };
 
   // Solo path: auto-join the earliest open public group for this item + size.
-  const joinPublic = async () => {
+  const doJoinPublic = async (ackVersion: string) => {
     if (!listing || !splitItem) {
       toast.error("Pick the item to split.");
       return;
@@ -342,8 +347,10 @@ export default function OrderForm() {
       p_listing_id: listing.id,
       p_item: splitItem.name,
       p_total_people: splitType,
+      p_ack_version: ackVersion,
     });
     setJoiningPublic(false);
+    setRulesAction(null);
     if (rpcError) {
       toast.error(rpcError.message);
       return;
@@ -754,13 +761,25 @@ export default function OrderForm() {
                   </p>
                 </div>
 
+                <p className="mt-4 rounded-xl bg-surface px-3 py-2.5 text-xs text-ink-muted">
+                  You'll only pay once the group is full and {listing.clubs?.name ?? "the club"}{" "}
+                  closes ordering. Then you get 24 hours (Eastern time). Track it on your{" "}
+                  <span className="font-semibold text-ink">Orders</span> page.
+                </p>
+
                 <Button
                   type="button"
-                  className="mt-5 w-full"
+                  className="mt-4 w-full"
                   size="lg"
                   loading={creatingGroup}
                   disabled={!splitItem || joiningPublic}
-                  onClick={() => void createGroup()}
+                  onClick={() => {
+                    if (!splitItem) {
+                      toast.error("Pick the item to split.");
+                      return;
+                    }
+                    setRulesAction("create");
+                  }}
                 >
                   {groupVisibility === "public" ? "Start a public group" : "Start a private group"}
                 </Button>
@@ -779,7 +798,13 @@ export default function OrderForm() {
                       size="lg"
                       loading={joiningPublic}
                       disabled={!splitItem || creatingGroup}
-                      onClick={() => void joinPublic()}
+                      onClick={() => {
+                        if (!splitItem) {
+                          toast.error("Pick the item to split.");
+                          return;
+                        }
+                        setRulesAction("join");
+                      }}
                     >
                       Join an open group (I'm solo)
                     </Button>
@@ -1046,6 +1071,18 @@ export default function OrderForm() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Rules acknowledgment, shown every time a student starts or joins a split. */}
+      <SplitRulesDialog
+        open={rulesAction !== null}
+        audience="student"
+        confirmLabel={rulesAction === "join" ? "Agree & join" : "Agree & start"}
+        busy={creatingGroup || joiningPublic}
+        onAccept={(version) =>
+          rulesAction === "join" ? void doJoinPublic(version) : void doCreateGroup(version)
+        }
+        onClose={() => setRulesAction(null)}
+      />
     </div>
   );
 }

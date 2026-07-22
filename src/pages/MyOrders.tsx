@@ -8,7 +8,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { ReservationCard } from "@/components/ReservationCard";
 import { fetchMyOrders, orderQuantity, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, formatEasternDateTime } from "@/lib/format";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { openVenmo } from "@/lib/venmo";
 import { GroupMembers } from "@/components/GroupMembers";
@@ -230,10 +230,25 @@ function GroupCard({
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge variant={status.variant}>{status.label}</Badge>
-            {(group.status === "filling" || payable) && <DeadlineTimer deadline={group.deadline} prefix={group.status === "filling" ? "Fills within" : "Pay within"} />}
+            {group.status === "filling" && (
+              <DeadlineTimer deadline={group.deadline} prefix="Fills within" />
+            )}
+            {group.status === "full" && group.order_deadline && (
+              <DeadlineTimer deadline={group.order_deadline} prefix="Orders close in" />
+            )}
+            {payable && <DeadlineTimer deadline={group.deadline} prefix="Pay within" />}
           </div>
         </div>
       </div>
+
+      {/* When you only pay: reinforced on every card until payment opens. */}
+      {(group.status === "filling" || group.status === "full") && (
+        <p className="mt-3 rounded-xl bg-primary/10 px-3 py-2.5 text-xs text-ink">
+          {group.status === "filling"
+            ? `You'll only pay once all ${group.total_people} spots fill and ${group.club_name} closes ordering. Nothing to pay yet — check back here for the status.`
+            : `Your group is full. You'll pay your ${formatPrice(Number(group.share_amount))} share once ${group.club_name} closes ordering${group.order_deadline ? ` (by ${formatEasternDateTime(group.order_deadline)})` : ""}. We'll email you and update this page — nothing to do yet.`}
+        </p>
+      )}
 
       <div className="mt-4">
         <GroupMembers group={group} currentUserId={userId} />
@@ -277,8 +292,12 @@ function GroupCard({
       {payable && !myPaid && (
         <div className="mt-4 rounded-xl bg-primary/15 p-3">
           <p className="text-sm font-semibold">
-            Pay {group.club_name} {formatPrice(Number(group.share_amount))}, then the club
-            verifies your share.
+            Ordering is closed — pay {group.club_name} {formatPrice(Number(group.share_amount))} now.
+            The club verifies your share.
+          </p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            You have until {formatEasternDateTime(group.deadline)}. If anyone in the group misses the
+            window, it cancels and no one is charged.
           </p>
 
           {/* Where the money goes: the club's handles, visible to EVERY member. */}
@@ -412,8 +431,8 @@ function GroupCard({
 
       {group.status === "canceled" && (
         <p className="mt-3 text-xs text-ink-muted">
-          The payment window closed before everyone paid. The club can reactivate it; you
-          will get an email if that happens.
+          This split was canceled — it either didn't fill in time or someone didn't pay within the
+          window. No one was charged. The club can reactivate it; you'll get an email if that happens.
         </p>
       )}
     </div>

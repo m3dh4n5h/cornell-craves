@@ -27,6 +27,9 @@ export type Club = {
   zelle_phone: string | null;
   approved: boolean;
   groups_enabled: boolean;
+  /** When the club last acknowledged how splitting works, and which version (migration 044). */
+  split_ack_at?: string | null;
+  split_ack_version?: string | null;
   logo_url: string | null;
   member_options: string[];
   created_at: string;
@@ -448,6 +451,11 @@ export type OrderGroup = {
   created_by: string;
   /** "Which member recommended you?", set by the creator (migration 043). */
   recommended_by?: string | null;
+  /**
+   * When ordering closes for this group (migration 044). Defaults to the drop's
+   * end time; the club can extend it. Payment opens when this passes.
+   */
+  order_deadline?: string | null;
   created_at: string;
 };
 
@@ -461,6 +469,9 @@ export type OrderGroupMember = {
   /** How this member says they are paying their share (migration 043). */
   payment_method?: "venmo" | "zelle" | null;
   payment_handle?: string | null;
+  /** When this member accepted the split rules, and which version (migration 044). */
+  acknowledged_at?: string | null;
+  acknowledged_rules_version?: string | null;
   created_at: string;
 };
 
@@ -1209,11 +1220,17 @@ export type Database = {
           p_split_type: number;
           p_invited_emails?: string[];
           p_visibility?: GroupVisibility;
+          p_ack_version: string;
         };
         Returns: { group_id: string; open_token: string | null };
       };
       join_or_create_public_group: {
-        Args: { p_listing_id: string; p_item: string; p_total_people: number };
+        Args: {
+          p_listing_id: string;
+          p_item: string;
+          p_total_people: number;
+          p_ack_version: string;
+        };
         Returns: { group_id: string; open_token?: string | null; joined: boolean };
       };
       invite_to_group: {
@@ -1221,7 +1238,7 @@ export type Database = {
         Returns: undefined;
       };
       accept_group_invite: {
-        Args: { p_token: string };
+        Args: { p_token: string; p_ack_version: string };
         Returns: string;
       };
       decline_group_invite: {
@@ -1251,6 +1268,27 @@ export type Database = {
       set_group_recommender: {
         Args: { p_group_id: string; p_value: string };
         Returns: undefined;
+      };
+      set_club_groups_enabled: {
+        Args: { p_enabled: boolean; p_ack_version?: string | null };
+        Returns: undefined;
+      };
+      club_extend_deadlines: {
+        Args: {
+          p_target: "order" | "payment";
+          p_hours: number;
+          p_group_id?: string | null;
+          p_listing_id?: string | null;
+        };
+        Returns: { changed: number };
+      };
+      open_group_payment: {
+        Args: { p_group_id?: string | null; p_listing_id?: string | null };
+        Returns: { opened: number };
+      };
+      reactivate_group: {
+        Args: { p_group_id: string };
+        Returns: { mode: "payment" | "fill" };
       };
     };
     Enums: { [_ in never]: never };

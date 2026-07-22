@@ -14,7 +14,7 @@ These are the 28 scenarios that caught (and now guard against) the
 ```bash
 npm i --no-save @electric-sql/pglite   # one time; not a project dependency
 node supabase/tests/simulate.mjs       # expect: 28 passed, 0 failed
-node supabase/tests/split-edge.mjs     # expect: 51 passed, 0 failed
+node supabase/tests/split-edge.mjs     # expect: 88 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,
@@ -27,3 +27,12 @@ invitation edge cases, per-member payment declarations, QR pass + pickup-code
 gating ("nothing unlocks until the WHOLE group is verified", no leaks through
 the public invite-token payload), the split recommender, and public-group
 matching. It guards the regression migration 021 introduced and 043 fixed.
+
+It also covers the migration-044 deadline model and acknowledgments: a full
+group owes nothing until its order deadline passes (then a 24h payment window
+opens); the hourly job (`process_group_deadlines`) opens payment, cancels
+groups that never fill, and cancels unpaid groups past their window; the club
+controls (`club_extend_deadlines`, `open_group_payment`, `reactivate_group`,
+with per-group and per-listing scope and ownership checks); the student rules
+acknowledgment required on every create/join; and the club acknowledgment
+required to enable the feature.

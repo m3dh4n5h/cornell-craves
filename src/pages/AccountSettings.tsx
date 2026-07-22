@@ -10,6 +10,7 @@ import { useBrandOptions } from "@/hooks/useBrands";
 import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { isValidNetid } from "@/lib/orders";
 import { GoogleButton } from "@/components/GoogleButton";
+import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -409,6 +410,7 @@ function ClubAccount({ club }: { club: Club }) {
   const [consent, setConsent] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [togglingGroups, setTogglingGroups] = useState(false);
+  const [groupsRulesOpen, setGroupsRulesOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   // Recommender member options (Tranche 4 #2), edited like a form dropdown.
@@ -504,16 +506,34 @@ function ClubAccount({ club }: { club: Club }) {
     toast.success("Logo removed.");
   };
 
-  const setGroupsEnabled = async (enabled: boolean) => {
+  // Turning splitting ON requires acknowledging how it works (every enable, and
+  // whenever the rules version changes). Turning it OFF is immediate.
+  const enableWithAck = async (ackVersion: string) => {
     setTogglingGroups(true);
-    const { error } = await supabase.from("clubs").update({ groups_enabled: enabled }).eq("id", club.id);
+    const { error } = await supabase.rpc("set_club_groups_enabled", {
+      p_enabled: true,
+      p_ack_version: ackVersion,
+    });
+    setTogglingGroups(false);
+    setGroupsRulesOpen(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success("Group ordering turned on");
+  };
+
+  const disableGroups = async () => {
+    setTogglingGroups(true);
+    const { error } = await supabase.rpc("set_club_groups_enabled", { p_enabled: false });
     setTogglingGroups(false);
     if (error) {
       toast.error(error.message);
       return;
     }
     await refetchClub();
-    toast.success(enabled ? "Group ordering turned on" : "Group ordering turned off");
+    toast.success("Group ordering turned off");
   };
 
   const normalizedVenmo = venmo.trim().replace(/^@/, "");
@@ -748,18 +768,35 @@ function ClubAccount({ club }: { club: Club }) {
             <span className="block text-sm font-bold">Group ordering &amp; splitting</span>
             <span className="block text-xs text-ink-muted">
               Let students split an item with friends. Turn off to only accept solo orders.
+              {club.groups_enabled && club.split_ack_version && (
+                <span className="mt-0.5 block text-[11px]">
+                  You accepted the split rules ({club.split_ack_version}).
+                </span>
+              )}
             </span>
           </span>
           <input
             type="checkbox"
             checked={club.groups_enabled}
             disabled={togglingGroups}
-            onChange={(e) => void setGroupsEnabled(e.target.checked)}
+            onChange={(e) => {
+              if (e.target.checked) setGroupsRulesOpen(true);
+              else void disableGroups();
+            }}
             className="size-5 shrink-0 accent-(--color-primary-dark)"
             aria-label="Enable group ordering and splitting"
           />
         </label>
       </div>
+
+      <SplitRulesDialog
+        open={groupsRulesOpen}
+        audience="club"
+        confirmLabel="Agree & turn on splitting"
+        busy={togglingGroups}
+        onAccept={(version) => void enableWithAck(version)}
+        onClose={() => setGroupsRulesOpen(false)}
+      />
 
       <form onSubmit={save} className="mt-6 space-y-4">
         <div>
