@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ClubProvider, useClub } from "@/hooks/useClub";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
+import { TourProvider } from "@/hooks/useTour";
+import { TourHost } from "@/components/tour/TourHost";
 import { Navbar } from "@/components/Navbar";
 import { BottomNav } from "@/components/BottomNav";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -30,6 +32,7 @@ const OrderDetail = lazy(() => import("@/pages/OrderDetail"));
 const ClubOrders = lazy(() => import("@/pages/ClubOrders"));
 const InvitePage = lazy(() => import("@/pages/InvitePage"));
 const Terms = lazy(() => import("@/pages/Terms"));
+const About = lazy(() => import("@/pages/About"));
 
 function PageFallback() {
   return (
@@ -60,6 +63,10 @@ const ONBOARDING_EXEMPT_PREFIXES = [
   "/login",
   "/register",
   "/invite",
+  // Public explainer pages. Someone who just signed in should be able to read
+  // what the app does (and replay a walkthrough) without being bounced.
+  "/about",
+  "/terms",
 ];
 
 /**
@@ -136,6 +143,7 @@ export default function App() {
       <AuthProvider>
         <ClubProvider>
         <ProfileProvider>
+        <TourProvider>
         <OnboardingGate />
         <RoleGate />
         <div className="flex min-h-dvh flex-col pb-14 md:pb-0">
@@ -165,12 +173,19 @@ export default function App() {
               <Route path="/club/:clubId/reservations-manager" element={<Screen><ClubReservations /></Screen>} />
               <Route path="/club/:clubId/orders-dashboard" element={<Screen><ClubOrders /></Screen>} />
               <Route path="/terms" element={<Screen><Terms /></Screen>} />
+              <Route path="/about" element={<Screen><About /></Screen>} />
             </Routes>
           </main>
           <footer className="border-t border-border">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 py-6 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
               <span>Cornell Craves, built by students for students.</span>
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <Link to="/about" className="font-semibold underline-offset-2 hover-fine:underline">
+                  About Cornell Craves
+                </Link>
+                <span aria-hidden="true" className="hidden sm:inline">
+                  /
+                </span>
                 <Link to="/terms" className="font-semibold underline-offset-2 hover-fine:underline">
                   Terms and disclaimer
                 </Link>
@@ -183,7 +198,9 @@ export default function App() {
           </footer>
         </div>
         <BottomNav />
+        <TourHost />
         <Toaster />
+        </TourProvider>
         </ProfileProvider>
         </ClubProvider>
       </AuthProvider>

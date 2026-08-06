@@ -48,6 +48,9 @@ const TABLES: Record<string, Row[]> = {
   brands: fx.adminGlobalBrands as unknown as Row[],
   listing_pickup_spots: [],
   analytics_events: fx.analyticsViews as unknown as Row[],
+  // Always empty in mock mode, so the first-run walkthrough invite shows up on
+  // every load. Useful for capturing tutorial screenshots.
+  tour_progress: [],
 };
 
 /** The orders table backs three different reads, told apart by the requested

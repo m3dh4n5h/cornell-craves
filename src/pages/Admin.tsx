@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { AlertTriangle, Eye, EyeOff, Inbox, PackageOpen, RefreshCw, ShieldX, Tag } from "lucide-react";
+import { AlertTriangle, Compass, Eye, EyeOff, Inbox, PackageOpen, RefreshCw, ShieldX, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { formatExpiry, formatPrice } from "@/lib/format";
 import {
   PeakHeatmap,
@@ -230,6 +231,7 @@ function AdminListingRow({
 
 export default function Admin() {
   const { user, isAdmin, loading: authLoading } = useAuth();
+  const { open: openTour } = useTour();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [requests, setRequests] = useState<AdminBrandRequest[]>([]);
   const [clubs, setClubs] = useState<AdminClub[]>([]);
@@ -474,10 +476,18 @@ export default function Admin() {
           <h1 className="text-2xl font-extrabold tracking-tight">Admin operations</h1>
           <p className="mt-1 text-sm text-ink-muted">Cornell Craves at a glance.</p>
         </div>
-        <Button variant="secondary" size="sm" loading={loading} onClick={() => void load()}>
-          <RefreshCw className="size-3.5" aria-hidden="true" />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Replayable admin walkthrough. Every decision in it is simulated, so
+              no club is approved and no brand is granted by tapping through. */}
+          <Button variant="ghost" size="sm" onClick={() => openTour("admin")}>
+            <Compass className="size-3.5" aria-hidden="true" />
+            How this works
+          </Button>
+          <Button variant="secondary" size="sm" loading={loading} onClick={() => void load()}>
+            <RefreshCw className="size-3.5" aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {error && (

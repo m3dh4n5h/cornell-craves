@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Store, UserRound } from "lucide-react";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Compass, Store, UserRound } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { GoogleButton } from "@/components/GoogleButton";
@@ -18,6 +18,23 @@ type Portal = (typeof PORTALS)[number]["id"];
 function safeNext(raw: string | null): string | null {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
   return raw;
+}
+
+/**
+ * Escape hatch for anyone who is not sure what they are signing into. The About
+ * page is public and carries the interactive walkthroughs, so a prospective club
+ * can see the whole tool before creating an account.
+ */
+function AboutLink() {
+  return (
+    <Link
+      to="/about"
+      className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm font-bold text-ink transition-colors duration-150 hover-fine:border-primary"
+    >
+      <Compass className="size-4 text-primary-dark" aria-hidden="true" />
+      New here? See how Cornell Craves works
+    </Link>
+  );
 }
 
 export default function Login() {
@@ -67,6 +84,7 @@ export default function Login() {
           </button>{" "}
           are open to everyone.
         </p>
+        <AboutLink />
       </div>
     );
   }
@@ -151,6 +169,7 @@ export default function Login() {
         </button>{" "}
         are open to everyone.
       </p>
+      <AboutLink />
     </div>
   );
 }

@@ -694,6 +694,37 @@ type CampusLocationInsert = {
   created_at?: string;
 };
 
+/** Which simulated walkthrough a `tour_progress` row belongs to (migration 045). */
+export type TourKey = "student" | "club" | "admin";
+
+/** 'completed' = reached the last step, 'skipped' = bailed out early. */
+export type TourStatus = "completed" | "skipped";
+
+/**
+ * One row per (user, walkthrough). Its existence is what suppresses the
+ * first-run auto-offer; `version` lets a client-side TOUR_VERSION bump re-offer
+ * the tour without a schema change.
+ */
+export type TourProgress = {
+  user_id: string;
+  tour_key: TourKey;
+  status: TourStatus;
+  last_step: number;
+  version: string;
+  seen_at: string;
+  updated_at: string;
+};
+
+type TourProgressInsert = {
+  user_id: string;
+  tour_key: TourKey;
+  status?: TourStatus;
+  last_step?: number;
+  version?: string;
+  seen_at?: string;
+  updated_at?: string;
+};
+
 type UserProfileInsert = {
   id: string;
   first_name?: string;
@@ -979,6 +1010,12 @@ export type Database = {
         Row: UserProfile;
         Insert: UserProfileInsert;
         Update: Partial<UserProfileInsert>;
+        Relationships: [];
+      };
+      tour_progress: {
+        Row: TourProgress;
+        Insert: TourProgressInsert;
+        Update: Partial<TourProgressInsert>;
         Relationships: [];
       };
       orders: {

@@ -70,6 +70,13 @@ Run the fundraiser like a real shop, not a group chat and a spreadsheet. Post a 
 
 ## Everything it does
 
+**Learning the app**
+
+- [x] Public **About Cornell Craves** page (`/about`): why it exists, the money rule, every feature split by audience, how data is handled, and an FAQ
+- [x] Three interactive simulated walkthroughs (student, club, admin) that run on invented sample data — no real drop, order, club, or payment is ever touched
+- [x] Offered once automatically on a first sign-up, replayable forever from `/about`, the club dashboard, the admin console, and account settings
+- [x] Skippable at every step (footer, close button, Escape, backdrop), and never blocked on completing an interaction
+
 **Discovery and alerts**
 
 - [x] Live feed with brand filtering, skeletons, staggered cards, and virtualization past 50 items
@@ -406,10 +413,13 @@ Full backend setup (Supabase project, SQL migrations, Google OAuth, Brevo, edge-
 src/
   components/   UI primitives, cards, filters, QR view and scanner,
                 split-order components, allergen icons, bottom nav
+  components/
+    tour/       walkthrough shell, sandbox primitives, and the three step
+                scripts (student, club, admin), lazily loaded as one chunk
   pages/        Feed, ListingDetail, OrderForm, MyOrders, OrderDetail, InvitePage,
                 MapPage, MyReservations, Cravings, Onboarding, Preferences,
-                AccountSettings, Login, Register, Terms, Dashboard, ClubOrders,
-                ClubAnalytics, ClubTemplates, ClubReservations, Admin
+                AccountSettings, Login, Register, Terms, About, Dashboard,
+                ClubOrders, ClubAnalytics, ClubTemplates, ClubReservations, Admin
   hooks/        useAuth, useProfile, useClub, useListings, useCountdown, and more
   lib/          supabase, orders, groups, dietary, brands, analytics, geocode, and more
   types/        database.ts (full typed schema plus RPC signatures)

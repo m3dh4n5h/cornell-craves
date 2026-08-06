@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { Check, ImagePlus, UserRound, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Check, Compass, ImagePlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useProfile } from "@/hooks/useProfile";
+import { useTour } from "@/hooks/useTour";
+import { TOUR_META, type TourKey } from "@/lib/tour";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { isValidNetid } from "@/lib/orders";
@@ -17,6 +19,43 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { Club, DietaryTagId } from "@/types/database";
 
+
+/**
+ * "Remind me how this works" block, shown on both the student and the club
+ * account pages. The walkthrough is fully simulated, so replaying it is always
+ * safe - it cannot post, order, verify, or delete anything.
+ */
+function HelpCard({ tour }: { tour: TourKey }) {
+  const { open, seen, reset } = useTour();
+  const meta = TOUR_META[tour];
+  const done = seen.has(tour);
+
+  return (
+    <div className="mt-4 rounded-2xl border border-border p-4">
+      <p className="text-sm font-bold text-ink">How Cornell Craves works</p>
+      <p className="mt-1 text-sm text-ink-muted">
+        {meta.blurb} It runs on sample data, and you can leave at any point.
+      </p>
+      <Button
+        variant="secondary"
+        className="mt-3 w-full"
+        onClick={() => {
+          if (done) reset(tour);
+          open(tour);
+        }}
+      >
+        <Compass className="size-4" aria-hidden="true" />
+        {done ? "Replay" : "Start"} the walkthrough - {meta.minutes}
+      </Button>
+      <Link
+        to="/about"
+        className="mt-3 block text-center text-sm font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
+      >
+        Read About Cornell Craves
+      </Link>
+    </div>
+  );
+}
 
 export default function AccountSettings() {
   const navigate = useNavigate();
@@ -381,6 +420,8 @@ export default function AccountSettings() {
           Unsubscribe from craving alerts
         </Button>
       </div>
+
+      <HelpCard tour="student" />
 
       <div className="mt-4 rounded-2xl border border-accent/40 p-4">
         <p className="text-sm font-bold text-ink">Delete account</p>
@@ -863,6 +904,8 @@ function ClubAccount({ club }: { club: Club }) {
       <Button variant="ghost" className="mt-4 w-full" onClick={handleSignOut}>
         Sign out
       </Button>
+
+      <HelpCard tour="club" />
 
       <div className="mt-8 rounded-2xl border border-accent/40 p-4">
         <p className="text-sm font-bold text-ink">Delete account</p>

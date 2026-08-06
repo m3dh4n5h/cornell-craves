@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   BadgeCheck,
   BarChart3,
+  Compass,
   Copy,
   Hourglass,
   LayoutTemplate,
@@ -20,6 +21,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
+import { useTour } from "@/hooks/useTour";
 import { useListings } from "@/hooks/useListings";
 import { useCountdown } from "@/hooks/useCountdown";
 import {
@@ -1153,6 +1155,7 @@ function DashboardSkeleton() {
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const { club, loading: clubLoading } = useClub();
+  const { open: openTour } = useTour();
   const {
     listings,
     loading: listingsLoading,
@@ -1240,6 +1243,12 @@ export default function Dashboard() {
             Your club is waiting on admin approval. You will get a welcome email the moment
             you are cleared to post drops.
           </p>
+          {/* Waiting is the ideal moment to learn the tools. Nothing in the
+              walkthrough needs an approved club, because none of it is real. */}
+          <Button variant="secondary" className="mt-5 w-full" onClick={() => openTour("club")}>
+            <Compass className="size-4" aria-hidden="true" />
+            Walk through the club tools
+          </Button>
         </div>
       </div>
     );
@@ -1426,6 +1435,12 @@ export default function Dashboard() {
             Reservations
           </Button>
         </Link>
+        {/* Replayable club walkthrough. Simulated end to end, so tapping through
+            it never touches a real drop, order, or payment. */}
+        <Button variant="ghost" size="sm" onClick={() => openTour("club")}>
+          <Compass className="size-3.5" aria-hidden="true" />
+          How this works
+        </Button>
       </div>
 
       <AnimatePresence mode="wait">
