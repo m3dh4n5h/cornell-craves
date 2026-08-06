@@ -9,9 +9,19 @@ import { useTour } from "@/hooks/useTour";
 import { TOUR_META, tourForRole, type TourKey } from "@/lib/tour";
 import { Button } from "@/components/ui/button";
 
-// Loaded only when a walkthrough is actually opened, so the tutorial's weight
-// stays out of the main bundle for everyone who never opens one.
-const TourRunner = lazy(() => import("@/components/tour/TourRunner"));
+/**
+ * One lazy chunk per walkthrough. Two reasons for the split rather than a
+ * single tutorial bundle:
+ *   * nobody pays for a tutorial they never open;
+ *   * the admin tour's copy describes approval and moderation tooling, and
+ *     `canOpen` never lets a student or club open it - so its chunk is never
+ *     fetched for them either.
+ */
+const TOURS = {
+  student: lazy(() => import("@/components/tour/tours/student")),
+  club: lazy(() => import("@/components/tour/tours/club")),
+  admin: lazy(() => import("@/components/tour/tours/admin")),
+} as const;
 
 /**
  * Routes where a first-run invite would be an interruption rather than a help:
@@ -154,6 +164,8 @@ export function TourHost() {
     profile?.cornell_netid,
   ]);
 
+  const ActiveTour = active ? TOURS[active] : null;
+
   return (
     <>
       <AnimatePresence>
@@ -176,15 +188,12 @@ export function TourHost() {
         )}
       </AnimatePresence>
 
-      {active && (
+      {ActiveTour && active && (
         // No fallback: the chunk is small and a flash of skeleton behind a
         // modal reads as a glitch. The invite/button click just settles a beat
         // later on a slow connection.
         <Suspense fallback={null}>
-          <TourRunner
-            tour={active}
-            onDone={(status, lastStep) => finish(active, status, lastStep)}
-          />
+          <ActiveTour onDone={(status, lastStep) => finish(active, status, lastStep)} />
         </Suspense>
       )}
     </>

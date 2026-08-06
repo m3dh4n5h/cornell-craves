@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Suspense, lazy, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3,
@@ -15,22 +15,25 @@ import {
   ReceiptText,
   ScanLine,
   ShieldCheck,
-  Sparkles,
   Store,
   Users,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useClub } from "@/hooks/useClub";
 import { useTour } from "@/hooks/useTour";
 import { TOUR_META, type TourKey } from "@/lib/tour";
+import { FeatureList, FeatureListSkeleton, type Feature } from "@/components/about/FeatureList";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+// Admin-only copy, in its own chunk. Never fetched for students or clubs.
+const AdminFeatures = lazy(() => import("@/components/about/AdminFeatures"));
 
 /* ------------------------------------------------------------------ */
 /* Content                                                             */
 /* ------------------------------------------------------------------ */
-
-type Feature = { Icon: LucideIcon; title: string; body: string };
 
 const STUDENT_FEATURES: Feature[] = [
   {
@@ -133,29 +136,6 @@ const CLUB_FEATURES: Feature[] = [
   },
 ];
 
-const ADMIN_FEATURES: Feature[] = [
-  {
-    Icon: ShieldCheck,
-    title: "Club approvals",
-    body: "The gate between someone signing up and a club selling food on the platform. Nothing a club does is visible until an admin clears it. Approving sends a welcome email and unlocks the dashboard.",
-  },
-  {
-    Icon: Sparkles,
-    title: "Brand requests",
-    body: "Three outcomes, and they are not interchangeable: approve for this club only (durable, so they never re-request), add to the global approved list for everyone, or reject. Approving releases the drafts the club had held.",
-  },
-  {
-    Icon: Lock,
-    title: "Per-club grants and moderation",
-    body: "Every durable grant is listed and revocable. Every listing on the platform can be hidden and restored, which pulls a drop off the feed without deleting anything or cancelling existing orders.",
-  },
-  {
-    Icon: BarChart3,
-    title: "Platform insights",
-    body: "Revenue over time, revenue by brand, peak ordering hours, and the eight-tile overview of clubs, students, orders, drops, reservations, and pending requests.",
-  },
-];
-
 const FAQ: { q: string; a: ReactNode }[] = [
   {
     q: "Does Cornell Craves take a cut of what clubs raise?",
@@ -201,66 +181,124 @@ const FAQ: { q: string; a: ReactNode }[] = [
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
-function TourCard({ tour, Icon }: { tour: TourKey; Icon: LucideIcon }) {
+/**
+ * "ready"   - the viewer's account type can run this walkthrough.
+ * "locked"  - shown, but not runnable, with a line explaining what is missing.
+ * "loading" - the club lookup has not settled; hold the button rather than
+ *             flashing "club accounts only" at an actual club owner.
+ */
+type CardState = "ready" | "locked" | "loading";
+
+function TourCard({
+  tour,
+  Icon,
+  state,
+  lockReason,
+}: {
+  tour: TourKey;
+  Icon: LucideIcon;
+  state: CardState;
+  lockReason?: ReactNode;
+}) {
   const { open, seen, reset } = useTour();
   const meta = TOUR_META[tour];
   const done = seen.has(tour);
+  const locked = state === "locked";
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border bg-surface-raised p-5">
-      <span className="flex size-11 items-center justify-center rounded-2xl bg-primary/20">
-        <Icon className="size-5 text-primary-dark" aria-hidden="true" />
-      </span>
-      <h3 className="mt-4 font-display text-base font-extrabold text-ink">{meta.label}</h3>
-      <p className="mt-1.5 flex-1 text-sm text-ink-muted">{meta.blurb}</p>
-      <Button
-        className="mt-4 w-full"
-        variant={done ? "secondary" : "primary"}
-        onClick={() => {
-          // Replaying should also clear the "seen" flag, so a person who wants
-          // the tour back gets it offered again on their next device too.
-          if (done) reset(tour);
-          open(tour);
-        }}
+    <div
+      className={cn(
+        "flex flex-col rounded-2xl border p-5",
+        locked ? "border-dashed border-border bg-surface" : "border-border bg-surface-raised",
+      )}
+    >
+      <span
+        className={cn(
+          "flex size-11 items-center justify-center rounded-2xl",
+          locked ? "bg-border/60" : "bg-primary/20",
+        )}
       >
-        <Compass className="size-4" aria-hidden="true" />
-        {done ? "Replay" : "Start"} - {meta.minutes}
-      </Button>
+        <Icon
+          className={cn("size-5", locked ? "text-ink-muted" : "text-primary-dark")}
+          aria-hidden="true"
+        />
+      </span>
+      <h3
+        className={cn(
+          "mt-4 font-display text-base font-extrabold",
+          locked ? "text-ink-muted" : "text-ink",
+        )}
+      >
+        {meta.label}
+      </h3>
+      <p className="mt-1.5 flex-1 text-sm text-ink-muted">{meta.blurb}</p>
+      {locked ? (
+        <>
+          <Button className="mt-4 w-full" variant="secondary" disabled>
+            <Lock className="size-4" aria-hidden="true" />
+            Club accounts only
+          </Button>
+          <p className="mt-2 text-center text-xs text-ink-muted">{lockReason}</p>
+        </>
+      ) : (
+        <Button
+          className="mt-4 w-full"
+          variant={done ? "secondary" : "primary"}
+          loading={state === "loading"}
+          onClick={() => {
+            // Replaying should also clear the "seen" flag, so a person who wants
+            // the tour back gets it offered again on their next device too.
+            if (done) reset(tour);
+            open(tour);
+          }}
+        >
+          <Compass className="size-4" aria-hidden="true" />
+          {done ? "Replay" : "Start"} - {meta.minutes}
+        </Button>
+      )}
     </div>
   );
 }
 
-function FeatureList({ features }: { features: Feature[] }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {features.map(({ Icon, title, body }) => (
-        <div key={title} className="rounded-2xl border border-border bg-surface-raised p-4">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/20">
-              <Icon className="size-4 text-primary-dark" aria-hidden="true" />
-            </span>
-            <h3 className="font-display text-sm font-extrabold text-ink">{title}</h3>
-          </div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-muted">{body}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-const AUDIENCES = [
-  { id: "students", label: "For students", features: STUDENT_FEATURES },
-  { id: "clubs", label: "For clubs", features: CLUB_FEATURES },
-  { id: "admins", label: "For admins", features: ADMIN_FEATURES },
+const ALL_AUDIENCES = [
+  { id: "students", label: "For students" },
+  { id: "clubs", label: "For clubs" },
+  { id: "admins", label: "For admins" },
 ] as const;
+
+type AudienceId = (typeof ALL_AUDIENCES)[number]["id"];
 
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
 export default function About() {
-  const [audience, setAudience] = useState<(typeof AUDIENCES)[number]["id"]>("students");
-  const active = AUDIENCES.find((entry) => entry.id === audience) ?? AUDIENCES[0];
+  const { isAdmin, user, loading: authLoading } = useAuth();
+  const { loading: clubLoading } = useClub();
+  const { canOpen } = useTour();
+
+  // Who is allowed to see what:
+  //   student  - everyone, including signed-out visitors
+  //   club     - club accounts and the admin
+  //   admin    - the admin only; for anyone else the admin features tab and the
+  //              admin walkthrough do not exist on this page at all
+  const roleLoading = authLoading || (Boolean(user) && clubLoading);
+
+  const audiences = useMemo(
+    () => ALL_AUDIENCES.filter((entry) => entry.id !== "admins" || isAdmin),
+    [isAdmin],
+  );
+
+  const [audience, setAudience] = useState<AudienceId>("students");
+  // If admin status disappears (sign-out in another tab) fall back to the first
+  // tab the viewer is still allowed to see, rather than rendering nothing.
+  const active = audiences.find((entry) => entry.id === audience) ?? audiences[0];
+
+  const clubCardState: CardState = roleLoading
+    ? "loading"
+    : canOpen("club")
+      ? "ready"
+      : "locked";
 
   return (
     <div className="pb-16">
@@ -292,10 +330,36 @@ export default function About() {
             and sample students, so nothing you do here touches a real drop, order, or account.
             Leave at any point.
           </p>
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <TourCard tour="student" Icon={UserRound} />
-            <TourCard tour="club" Icon={Store} />
-            <TourCard tour="admin" Icon={ShieldCheck} />
+          <div
+            className={cn(
+              "mt-5 grid grid-cols-1 gap-3",
+              isAdmin ? "sm:grid-cols-3" : "sm:grid-cols-2",
+            )}
+          >
+            <TourCard tour="student" Icon={UserRound} state="ready" />
+            <TourCard
+              tour="club"
+              Icon={Store}
+              state={clubCardState}
+              lockReason={
+                user ? (
+                  "Sign in with your club's Google account to run it. Everything a club can do is still listed below."
+                ) : (
+                  <>
+                    <Link
+                      to="/login"
+                      className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
+                    >
+                      Sign in as a club
+                    </Link>{" "}
+                    to run this walkthrough.
+                  </>
+                )
+              }
+            />
+            {/* The admin walkthrough is not rendered at all for anyone else -
+                not disabled, not mentioned. */}
+            {isAdmin && <TourCard tour="admin" Icon={ShieldCheck} state="ready" />}
           </div>
         </section>
 
@@ -410,7 +474,7 @@ export default function About() {
             role="tablist"
             aria-label="Feature audience"
           >
-            {AUDIENCES.map(({ id, label }) => (
+            {audiences.map(({ id, label }) => (
               <button
                 key={id}
                 type="button"
@@ -429,7 +493,15 @@ export default function About() {
             ))}
           </div>
           <div className="mt-4">
-            <FeatureList features={active.features} />
+            {active.id === "students" && <FeatureList features={STUDENT_FEATURES} />}
+            {active.id === "clubs" && <FeatureList features={CLUB_FEATURES} />}
+            {/* Double-gated: the tab only exists for the admin, and the chunk
+                that describes admin tooling is only ever fetched for them. */}
+            {active.id === "admins" && isAdmin && (
+              <Suspense fallback={<FeatureListSkeleton />}>
+                <AdminFeatures />
+              </Suspense>
+            )}
           </div>
         </section>
 

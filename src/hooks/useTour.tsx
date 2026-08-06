@@ -10,6 +10,7 @@ import {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useClub } from "@/hooks/useClub";
 import {
   TOUR_VERSION,
   clearLocalTourSeen,
@@ -27,6 +28,11 @@ interface TourContextValue {
   seen: Set<TourKey>;
   /** True until the first fetch for the current user settles. */
   loading: boolean;
+  /**
+   * Whether the signed-in account type is allowed to run this walkthrough.
+   * Student: everyone. Club: club accounts and the admin. Admin: admin only.
+   */
+  canOpen: (tour: TourKey) => boolean;
   open: (tour: TourKey) => void;
   close: () => void;
   /** Records the tour as done (server + local mirror) and closes it. */
@@ -48,7 +54,8 @@ const TourContext = createContext<TourContextValue | null>(null);
  * new device. Nothing here ever blocks the UI on a network call.
  */
 export function TourProvider({ children }: { children: ReactNode }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { club } = useClub();
   const [active, setActive] = useState<TourKey | null>(null);
   const [seen, setSeen] = useState<Set<TourKey>>(new Set());
   const [fetchedFor, setFetchedFor] = useState<string | null | undefined>(undefined);
@@ -121,7 +128,29 @@ export function TourProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, authLoading]);
 
-  const open = useCallback((tour: TourKey) => setActive(tour), []);
+  /**
+   * Single source of truth for who may see which walkthrough. The admin tour
+   * describes moderation and approval tooling, so it is admin-only; the club
+   * tour is for club accounts (and the admin, who oversees them). Enforced here
+   * rather than only in the UI so no future entry point can leak one by
+   * forgetting a check.
+   */
+  const canOpen = useCallback(
+    (tour: TourKey) => {
+      if (tour === "admin") return isAdmin;
+      if (tour === "club") return Boolean(club) || isAdmin;
+      return true;
+    },
+    [isAdmin, club],
+  );
+
+  const open = useCallback(
+    (tour: TourKey) => {
+      if (!canOpen(tour)) return;
+      setActive(tour);
+    },
+    [canOpen],
+  );
 
   /** Closes without recording anything - the tour stays "unseen". */
   const close = useCallback(() => setActive(null), []);
@@ -181,12 +210,13 @@ export function TourProvider({ children }: { children: ReactNode }) {
       active,
       seen,
       loading: fetchedFor === undefined || fetchedFor !== userId,
+      canOpen,
       open,
       close,
       finish,
       reset,
     }),
-    [active, seen, fetchedFor, userId, open, close, finish, reset],
+    [active, seen, fetchedFor, userId, canOpen, open, close, finish, reset],
   );
 
   return <TourContext.Provider value={value}>{children}</TourContext.Provider>;
