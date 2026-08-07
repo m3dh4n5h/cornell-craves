@@ -185,6 +185,12 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   can_i_review: () => false,
   track_event: () => null,
   am_i_admin: () => currentRole() === "admin",
+  // In mock mode the admin is also the owner, so the Admins tab is visible.
+  am_i_owner: () => currentRole() === "admin",
+  admin_list_admins: () => fx.adminRoster,
+  admin_add_admin: () => null,
+  admin_set_admin_status: () => null,
+  admin_remove_admin: () => null,
   admin_overview: () => fx.adminOverview,
   admin_clubs: () => fx.adminClubs,
   admin_brand_requests: () => fx.adminBrandRequests,

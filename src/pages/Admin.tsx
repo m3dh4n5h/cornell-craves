@@ -12,6 +12,7 @@ import {
   type RevenuePoint,
 } from "@/components/AnalyticsChart";
 import { EmptyState } from "@/components/EmptyState";
+import { AdminRoster } from "@/components/admin/AdminRoster";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,17 @@ import type {
 } from "@/types/database";
 
 type BrandDecision = "one_time" | "global" | "reject";
-type TabId = "insights" | "approvals" | "requests" | "listings" | "clubs" | "revenue" | "brands";
+type TabId =
+  | "insights"
+  | "approvals"
+  | "requests"
+  | "listings"
+  | "clubs"
+  | "revenue"
+  | "brands"
+  // Owner only. Filtered out of TABS entirely for a regular admin, so it is not
+  // merely disabled - it does not exist in their console.
+  | "admins";
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -162,7 +173,7 @@ function ClubRow({
   );
 }
 
-const TABS: { id: TabId; label: string }[] = [
+const TABS: { id: TabId; label: string; ownerOnly?: boolean }[] = [
   { id: "insights", label: "Insights" },
   { id: "approvals", label: "Approvals" },
   { id: "requests", label: "Brand requests" },
@@ -170,6 +181,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "clubs", label: "Clubs" },
   { id: "revenue", label: "Revenue" },
   { id: "brands", label: "Brands" },
+  { id: "admins", label: "Admins", ownerOnly: true },
 ];
 
 /** Moderation row: any listing on the platform, with hide/restore. */
@@ -230,7 +242,7 @@ function AdminListingRow({
 }
 
 export default function Admin() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { user, isAdmin, isOwner, loading: authLoading } = useAuth();
   const { open: openTour } = useTour();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [requests, setRequests] = useState<AdminBrandRequest[]>([]);
@@ -548,7 +560,7 @@ export default function Admin() {
 
       {/* Tabs */}
       <div className="mt-8 flex flex-wrap gap-2" role="tablist" aria-label="Admin sections">
-        {TABS.map(({ id, label }) => {
+        {TABS.filter(({ ownerOnly }) => !ownerOnly || isOwner).map(({ id, label }) => {
           const count =
             id === "approvals"
               ? pendingClubs.length
@@ -793,6 +805,12 @@ export default function Admin() {
               </div>
             )}
           </>
+        ) : tab === "admins" ? (
+          // Belt and braces: the tab is already filtered out for non-owners,
+          // and every RPC behind this component re-checks is_owner() anyway.
+          isOwner ? (
+            <AdminRoster />
+          ) : null
         ) : tab === "revenue" ? (
           <div className="space-y-6">
             <div>

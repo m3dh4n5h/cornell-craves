@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Flame } from "lucide-react";
+import { Flame, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
@@ -10,6 +10,25 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
   return cn(
     "rounded-full px-3 py-1.5 text-sm font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)]",
     isActive ? "bg-primary/25 text-ink" : "text-ink-muted hover-fine:bg-primary/15 hover-fine:text-ink",
+  );
+}
+
+/**
+ * Sits immediately left of Sign in / Sign out in the top bar.
+ *
+ * The label collapses to the icon below `lg` on purpose: with Feed, Map,
+ * Cravings, Orders, Admin, Account and Sign out already competing for the row,
+ * a seventh word overflows a 768px viewport. The icon keeps About reachable at
+ * every desktop width, and the accessible name is always the full phrase.
+ */
+function AboutLink() {
+  return (
+    <NavLink to="/about" className={navLinkClass} aria-label="About Cornell Craves">
+      <span className="flex items-center gap-1.5">
+        <Info className="size-4 shrink-0" aria-hidden="true" />
+        <span className="hidden lg:inline">About</span>
+      </span>
+    </NavLink>
   );
 }
 
@@ -62,6 +81,7 @@ export function Navbar() {
                   Admin
                 </NavLink>
               )}
+              <AboutLink />
               <Button variant="ghost" size="sm" onClick={handleSignOut}>
                 Sign out
               </Button>
@@ -90,14 +110,18 @@ export function Navbar() {
                   <NavLink to="/account/settings" className={navLinkClass}>
                     Account
                   </NavLink>
+                  <AboutLink />
                   <Button variant="ghost" size="sm" onClick={handleSignOut}>
                     Sign out
                   </Button>
                 </>
               ) : (
-                <Button variant="secondary" size="sm" onClick={() => navigate("/login")}>
-                  Sign in
-                </Button>
+                <>
+                  <AboutLink />
+                  <Button variant="secondary" size="sm" onClick={() => navigate("/login")}>
+                    Sign in
+                  </Button>
+                </>
               )}
             </>
           )}

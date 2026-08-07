@@ -838,3 +838,37 @@ export const adminInsights: AdminInsights = {
   students_new_30d: 64,
   avg_order_value_30d: 15.42,
 };
+
+/** Admin roster fixture for the owner-only Admins tab (migration 046). */
+export const adminRoster = [
+  {
+    email: MOCK_ADMIN_EMAIL,
+    label: "You",
+    role: "owner",
+    status: "active",
+    added_by: null,
+    created_at: "2026-06-01T12:00:00Z",
+    status_changed_at: null,
+    status_changed_by: null,
+  },
+  {
+    email: "second-admin@example.com",
+    label: "Ops lead",
+    role: "admin",
+    status: "active",
+    added_by: MOCK_ADMIN_EMAIL,
+    created_at: "2026-07-14T09:30:00Z",
+    status_changed_at: "2026-07-14T09:30:00Z",
+    status_changed_by: MOCK_ADMIN_EMAIL,
+  },
+  {
+    email: "former-admin@example.com",
+    label: null,
+    role: "admin",
+    status: "suspended",
+    added_by: MOCK_ADMIN_EMAIL,
+    created_at: "2026-06-20T15:05:00Z",
+    status_changed_at: "2026-08-01T11:00:00Z",
+    status_changed_by: MOCK_ADMIN_EMAIL,
+  },
+];

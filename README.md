@@ -107,6 +107,14 @@ Run the fundraiser like a real shop, not a group chat and a spreadsheet. Post a 
 - [x] 24-hour payment windows with color-shifting timers
 - [x] Per-member passes, auto-cancel past the deadline, and club reactivation
 
+**Admin team**
+
+- [x] One **owner** plus any number of ordinary admins, all stored in a runtime table (no admin identity in the codebase)
+- [x] Owner-only Admins tab: add, suspend, reactivate, and remove admins without touching SQL
+- [x] Ordinary admins get every power except the roster itself — they cannot even list it
+- [x] Suspension revokes access on the next request; the owner row cannot be suspended, removed, or demoted from the app
+- [x] Guards enforced in the database (`is_owner()`), not the UI, and covered by `supabase/tests/admin-roles.mjs`
+
 **Security and hardening**
 
 - [x] Every personal-data lookup locked to the signed-in owner (see `SECURITY_AUDIT.md`)

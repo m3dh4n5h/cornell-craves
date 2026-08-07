@@ -694,6 +694,24 @@ type CampusLocationInsert = {
   created_at?: string;
 };
 
+/** Admin roster roles (migration 046). Exactly one `owner` exists. */
+export type AdminRole = "owner" | "admin";
+
+/** `suspended` keeps the row and its history but removes every power. */
+export type AdminStatus = "active" | "suspended";
+
+/** A row of the admin roster, as returned by `admin_list_admins()`. */
+export type AdminRosterEntry = {
+  email: string;
+  label: string | null;
+  role: AdminRole;
+  status: AdminStatus;
+  added_by: string | null;
+  created_at: string;
+  status_changed_at: string | null;
+  status_changed_by: string | null;
+};
+
 /** Which simulated walkthrough a `tour_progress` row belongs to (migration 045). */
 export type TourKey = "student" | "club" | "admin";
 
@@ -1155,6 +1173,26 @@ export type Database = {
       am_i_admin: {
         Args: Record<string, never>;
         Returns: boolean;
+      };
+      am_i_owner: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      admin_list_admins: {
+        Args: Record<string, never>;
+        Returns: AdminRosterEntry[];
+      };
+      admin_add_admin: {
+        Args: { p_email: string; p_label?: string | null };
+        Returns: undefined;
+      };
+      admin_set_admin_status: {
+        Args: { p_email: string; p_status: AdminStatus };
+        Returns: undefined;
+      };
+      admin_remove_admin: {
+        Args: { p_email: string };
+        Returns: undefined;
       };
       is_brand_approved_for_club: {
         Args: { p_club: string; p_brand: string };

@@ -15,6 +15,7 @@ These are the 28 scenarios that caught (and now guard against) the
 npm i --no-save @electric-sql/pglite   # one time; not a project dependency
 node supabase/tests/simulate.mjs       # expect: 28 passed, 0 failed
 node supabase/tests/split-edge.mjs     # expect: 88 passed, 0 failed
+node supabase/tests/admin-roles.mjs    # expect: 41 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,
@@ -36,3 +37,16 @@ controls (`club_extend_deadlines`, `open_group_payment`, `reactivate_group`,
 with per-group and per-listing scope and ownership checks); the student rules
 acknowledgment required on every create/join; and the club acknowledgment
 required to enable the feature.
+
+`admin-roles.mjs` covers the owner / multi-admin roster from migration 046: that
+seeding no owner leaves the roster unmanageable by anyone (the safe failure
+mode), that exactly one owner can exist, that an ordinary admin keeps every
+platform power but is refused the roster outright, that the owner cannot suspend
+or remove themselves, that suspension revokes `is_admin()` — and therefore every
+RLS policy that depends on it — on the very next request, and that addresses are
+matched case- and whitespace-insensitively so `Ops@Example.com ` and
+`ops@example.com` can never become two rows.
+
+Every guard is asserted against the database rather than the UI, because
+`AdminRoster.tsx` only hides buttons; `is_owner()` is what actually stops
+someone calling the RPC by hand.
