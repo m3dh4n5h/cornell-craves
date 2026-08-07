@@ -20,6 +20,15 @@ interface AuthContextValue {
   isAdmin: boolean;
   /** The single owner, who alone can manage the admin roster (migration 046). */
   isOwner: boolean;
+  /**
+   * True until the roster lookup has answered for the current session.
+   *
+   * Gates MUST wait on this. `isAdmin` is now resolved over the network, so
+   * anyone whose access comes from the roster rather than VITE_ADMIN_EMAIL
+   * looks like a plain student for the first moment after sign-in - long enough
+   * for the onboarding redirect to fire and strand them on a NetID form.
+   */
+  roleLoading: boolean;
   /** True when the session came through Google sign-in (student accounts). */
   isGoogleUser: boolean;
   loading: boolean;
@@ -31,12 +40,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  // What the database says about this session. `null` means "not answered yet
-  // or the call failed", which is why it is a tri-state rather than a boolean.
-  const [roster, setRoster] = useState<{ admin: boolean | null; owner: boolean }>({
-    admin: null,
-    owner: false,
-  });
+  // What the database says about this session. `admin: null` means "unknown"
+  // (not asked yet, or the call failed) and falls back to the env var below.
+  // `resolvedFor` records which email we have an answer for, so gates can tell
+  // "still asking" apart from "asked, and the answer is no".
+  const [roster, setRoster] = useState<{
+    admin: boolean | null;
+    owner: boolean;
+    resolvedFor: string | null;
+  }>({ admin: null, owner: false, resolvedFor: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     if (!sessionEmail) {
-      setRoster({ admin: null, owner: false });
+      setRoster({ admin: null, owner: false, resolvedFor: null });
       return;
     }
     let cancelled = false;
@@ -91,6 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // `am_i_owner` does not exist until 046 is applied. No owner is the
         // correct answer then: the roster UI simply stays hidden.
         owner: ownerResult.error ? false : Boolean(ownerResult.data),
+        // Resolved either way. An errored lookup is still an answer; leaving
+        // this null would hang every gate forever when the RPC is missing.
+        resolvedFor: sessionEmail,
       });
     })();
     return () => {
@@ -113,6 +128,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // a misconfigured deploy look like a missing page.
       isAdmin: envAdmin || roster.admin === true,
       isOwner: roster.owner,
+      // Someone matching VITE_ADMIN_EMAIL is admin instantly, so there is
+      // nothing to wait for in that case.
+      roleLoading: Boolean(email) && !envAdmin && roster.resolvedFor !== email,
       isGoogleUser: session?.user?.app_metadata?.provider === "google",
       loading,
       signOut: async () => {

@@ -74,14 +74,17 @@ const ONBOARDING_EXEMPT_PREFIXES = [
  * onboarding once. Clubs and the admin are exempt.
  */
 function OnboardingGate() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading, roleLoading } = useAuth();
   const { club, loading: clubLoading } = useClub();
   const { profile, loading: profileLoading } = useProfile();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (authLoading || clubLoading || profileLoading) return;
+    // roleLoading matters here: an admin who is on the roster (rather than in
+    // VITE_ADMIN_EMAIL) has no users_extended row, so acting before the lookup
+    // lands would redirect them to onboarding and ask them for a NetID.
+    if (authLoading || clubLoading || profileLoading || roleLoading) return;
     if (!user || club || isAdmin) return;
     if (ONBOARDING_EXEMPT_PREFIXES.some((prefix) => location.pathname.startsWith(prefix))) return;
     if (!profile?.cornell_netid) {
@@ -91,6 +94,7 @@ function OnboardingGate() {
     authLoading,
     clubLoading,
     profileLoading,
+    roleLoading,
     user,
     club,
     isAdmin,
@@ -112,13 +116,15 @@ const CLUB_BLOCKED_PREFIXES = ["/cravings", "/orders", "/reservations"];
  * club tools.
  */
 function RoleGate() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading, roleLoading } = useAuth();
   const { club, loading: clubLoading } = useClub();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (authLoading || clubLoading) return;
+    // Same reason as the onboarding gate: the `!isAdmin` branch below would
+    // fire against a roster admin before their lookup returns.
+    if (authLoading || clubLoading || roleLoading) return;
     const path = location.pathname;
     if (club) {
       const blocked = CLUB_BLOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -132,7 +138,7 @@ function RoleGate() {
         navigate("/", { replace: true });
       }
     }
-  }, [authLoading, clubLoading, club, user, isAdmin, location.pathname, navigate]);
+  }, [authLoading, clubLoading, roleLoading, club, user, isAdmin, location.pathname, navigate]);
 
   return null;
 }

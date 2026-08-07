@@ -242,7 +242,7 @@ function AdminListingRow({
 }
 
 export default function Admin() {
-  const { user, isAdmin, isOwner, loading: authLoading } = useAuth();
+  const { user, isAdmin, isOwner, loading: authLoading, roleLoading } = useAuth();
   const { open: openTour } = useTour();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [requests, setRequests] = useState<AdminBrandRequest[]>([]);
@@ -345,7 +345,9 @@ export default function Admin() {
     return { trend, heatmap, orders30d };
   }, [insights]);
 
-  if (authLoading) {
+  // Wait on the roster lookup too, or an admin whose access comes from the
+  // roster rather than VITE_ADMIN_EMAIL sees "Admins only" flash first.
+  if (authLoading || roleLoading) {
     return (
       <div className="mx-auto w-full max-w-4xl px-4 py-10" aria-busy="true" aria-label="Loading admin panel">
         <div className="h-9 w-40 animate-pulse rounded-xl bg-border/70" />
@@ -364,7 +366,7 @@ export default function Admin() {
         <EmptyState
           icon={<ShieldX className="size-6" aria-hidden="true" />}
           title="Admins only"
-          body="This account does not have admin access. If that seems wrong, check VITE_ADMIN_EMAIL."
+          body="This account does not have admin access. If you were just added, sign out and back in. If that still seems wrong, ask the owner to check the exact address on the Admins tab."
         />
       </div>
     );
