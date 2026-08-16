@@ -13,6 +13,7 @@ import { DIETARY_TAGS, DIETARY_TAG_IDS } from "@/lib/dietary";
 import { isValidNetid } from "@/lib/orders";
 import { GoogleButton } from "@/components/GoogleButton";
 import { SplitRulesDialog } from "@/components/SplitRulesDialog";
+import { SPLIT_RULES_VERSION } from "@/lib/groups";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -550,6 +551,7 @@ function ClubAccount({ club }: { club: Club }) {
   // Turning splitting ON requires acknowledging how it works (every enable, and
   // whenever the rules version changes). Turning it OFF is immediate.
   const enableWithAck = async (ackVersion: string) => {
+    const wasAlreadyEnabled = club.groups_enabled;
     setTogglingGroups(true);
     const { error } = await supabase.rpc("set_club_groups_enabled", {
       p_enabled: true,
@@ -562,7 +564,7 @@ function ClubAccount({ club }: { club: Club }) {
       return;
     }
     await refetchClub();
-    toast.success("Group ordering turned on");
+    toast.success(wasAlreadyEnabled ? "Updated split rules accepted" : "Group ordering turned on");
   };
 
   const disableGroups = async () => {
@@ -576,6 +578,12 @@ function ClubAccount({ club }: { club: Club }) {
     await refetchClub();
     toast.success("Group ordering turned off");
   };
+
+  // The split rules changed since this club last agreed to them, but they
+  // never re-toggled the feature off/on to re-trigger the dialog. Splitting
+  // stays on (turning it off under them would be disruptive); prompt instead.
+  const needsSplitReacceptance =
+    club.groups_enabled && club.split_ack_version !== SPLIT_RULES_VERSION;
 
   const normalizedVenmo = venmo.trim().replace(/^@/, "");
   const normalizedZelle = zelle.trim();
@@ -828,12 +836,26 @@ function ClubAccount({ club }: { club: Club }) {
             aria-label="Enable group ordering and splitting"
           />
         </label>
+        {needsSplitReacceptance && (
+          <p className="mt-3 rounded-xl bg-primary/15 p-3 text-xs text-ink">
+            The split rules have changed since you last agreed to them. Splitting stays on for
+            now, but please{" "}
+            <button
+              type="button"
+              onClick={() => setGroupsRulesOpen(true)}
+              className="font-semibold text-primary-dark underline-offset-2 hover-fine:underline"
+            >
+              review and re-accept
+            </button>
+            .
+          </p>
+        )}
       </div>
 
       <SplitRulesDialog
         open={groupsRulesOpen}
         audience="club"
-        confirmLabel="Agree & turn on splitting"
+        confirmLabel={club.groups_enabled ? "Agree to updated rules" : "Agree & turn on splitting"}
         busy={togglingGroups}
         onAccept={(version) => void enableWithAck(version)}
         onClose={() => setGroupsRulesOpen(false)}

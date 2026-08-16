@@ -410,8 +410,14 @@ export default function MapPage() {
                       <span className="block truncate text-sm font-bold">{listing.title}</span>
                       <span className="block truncate text-xs text-ink-muted">
                         {listing.brand}
+                        {listing.clubs?.name ? ` by ${listing.clubs.name}` : ""}
                         {range ? `, ${range}` : ""}
                       </span>
+                      {(orderType === "preorder" || orderType === "both") && (
+                        <span className="mt-0.5 block text-xs font-semibold text-primary-dark">
+                          Still accepting pre-orders — check the listing for pickup details
+                        </span>
+                      )}
                       <span className="mt-1 flex flex-wrap items-center gap-1">
                         {orderType && (
                           <Badge variant={ORDER_TYPE_BADGE[orderType]}>

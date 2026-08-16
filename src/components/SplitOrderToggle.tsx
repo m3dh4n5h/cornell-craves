@@ -13,8 +13,8 @@ export function SplitOrderToggle({ enabled, onChange }: SplitOrderToggleProps) {
         <span>
           <span className="block text-sm font-bold">Split this order</span>
           <span className="block text-xs text-ink-muted">
-            Pick one item, split the cost with 2 to 4 people. Everyone pays their share and
-            gets their own QR pass.
+            Pick one item, split the cost with friends. Everyone pays their share and gets
+            their own QR pass.
           </span>
         </span>
       </span>

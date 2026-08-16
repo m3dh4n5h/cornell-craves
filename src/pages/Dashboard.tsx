@@ -651,7 +651,9 @@ function ListingForm({
     }
 
     // Held-back brands need an admin request on file so it can be approved.
-    if (mode !== "publish") {
+    // Already-postable brands skip this - saving an approved brand as a draft
+    // shouldn't file a redundant request.
+    if (mode !== "publish" && !isPostable) {
       await supabase.rpc("request_brand", { p_name: brand.trim() }).then(
         () => onBrandRequested(),
         () => {},
@@ -666,7 +668,9 @@ function ListingForm({
     } else if (spotError) {
       toast.error(`Listing saved, but pickup spots failed: ${spotError}`);
     } else if (mode === "draft") {
-      toast.success("Saved as a draft. Publish it once the brand is approved.");
+      toast.success(
+        isPostable ? "Saved as a draft." : "Saved as a draft. Publish it once the brand is approved.",
+      );
     } else if (mode === "autopost") {
       toast.success("Saved. It posts automatically once an admin approves the brand.");
     } else {
@@ -937,24 +941,22 @@ function ListingForm({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          loading={submitting}
+          onClick={() => void handleSubmit("draft")}
+        >
+          Save as draft
+        </Button>
         {isPostable ? (
           <Button type="button" loading={submitting} onClick={() => void handleSubmit("publish")}>
             {initial ? "Save changes" : "Publish drop"}
           </Button>
         ) : (
-          <>
-            <Button
-              type="button"
-              variant="secondary"
-              loading={submitting}
-              onClick={() => void handleSubmit("draft")}
-            >
-              Save as draft
-            </Button>
-            <Button type="button" loading={submitting} onClick={() => void handleSubmit("autopost")}>
-              Auto-post when approved
-            </Button>
-          </>
+          <Button type="button" loading={submitting} onClick={() => void handleSubmit("autopost")}>
+            Auto-post when approved
+          </Button>
         )}
       </div>
     </form>
