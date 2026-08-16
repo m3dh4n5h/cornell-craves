@@ -14,13 +14,21 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
   );
 }
 
+// "About" (text-sm/Epilogue) has almost no descender, so its glyph ink sits
+// above the vertical center of its own line box -- items-center aligns boxes,
+// not ink, so without this the text visibly floats above the icon's center.
+// Measured directly (canvas actualBoundingBoxAscent/Descent vs the icon's own
+// SVG bbox, with fonts confirmed loaded): the text's true visual center sits
+// ~2.1px above the icon's.
+const ABOUT_TEXT_OPTICAL_NUDGE = "translateY(2.1px)";
+
 /** Sits immediately left of Sign in / Sign out in the top bar. */
 function AboutLink() {
   return (
     <NavLink to="/about" className={navLinkClass} aria-label="About Cornell Craves">
       <span className="flex items-center gap-1.5">
         <Info className="size-4 shrink-0" aria-hidden="true" />
-        <span>About</span>
+        <span style={{ transform: ABOUT_TEXT_OPTICAL_NUDGE }}>About</span>
       </span>
     </NavLink>
   );
@@ -56,7 +64,7 @@ export function Navbar() {
           className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:bg-primary/15 hover-fine:text-ink md:hidden"
         >
           <Info className="size-4 shrink-0" aria-hidden="true" />
-          <span>About</span>
+          <span style={{ transform: ABOUT_TEXT_OPTICAL_NUDGE }}>About</span>
         </Link>
 
         {/* On mobile the bottom tab bar carries navigation; the top bar stays clean. */}

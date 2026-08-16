@@ -336,9 +336,15 @@ export default function MapPage() {
             </MapGL>
 
             {groups.length === 0 && (
-              <div className="z-raised absolute inset-x-4 top-4 rounded-2xl border border-border bg-surface-raised/95 p-4 text-center backdrop-blur-md">
-                <p className="text-sm font-semibold">No pinned drops match those filters.</p>
-                <p className="mt-1 text-xs text-ink-muted">
+              // top-20 clears the zoom controls (top-right, ~69px tall including
+              // their own top margin) instead of sitting behind them.
+              <div className="z-raised absolute inset-x-4 top-20 rounded-2xl border border-border bg-surface-raised/95 p-4 text-center backdrop-blur-md">
+                {/* The global `p { max-width: 65ch }` rule caps these below the
+                    box's width on wide screens; text-align:center only centers
+                    inline content within a block, not the (now narrower) block
+                    itself, so without mx-auto both lines sit flush left. */}
+                <p className="mx-auto text-sm font-semibold">No pinned drops match those filters.</p>
+                <p className="mx-auto mt-1 text-xs text-ink-muted">
                   Try fewer filters, or browse everything on the <Link to="/" className="font-semibold text-primary-dark">feed</Link>.
                 </p>
               </div>
