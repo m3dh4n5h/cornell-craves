@@ -202,6 +202,7 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   create_order: () => "o-new-demo",
   set_order_recommender: () => null,
   set_group_recommender: () => null,
+  set_group_member_recommender: () => null,
   set_group_member_payment: () => null,
   set_club_groups_enabled: () => null,
   club_extend_deadlines: () => ({ changed: 1 }),

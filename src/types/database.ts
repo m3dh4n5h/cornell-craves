@@ -449,7 +449,12 @@ export type OrderGroup = {
   status: GroupStatus;
   visibility: GroupVisibility;
   created_by: string;
-  /** "Which member recommended you?", set by the creator (migration 043). */
+  /**
+   * "Which member recommended you?", set by the creator only (migration 043).
+   * Superseded by the per-member `recommended_by` on each `GroupMemberView`
+   * (migration 048); kept for backward compatibility with old rows, but new
+   * code should read the per-member field instead.
+   */
   recommended_by?: string | null;
   /**
    * When ordering closes for this group (migration 044). Defaults to the drop's
@@ -472,6 +477,8 @@ export type OrderGroupMember = {
   /** When this member accepted the split rules, and which version (migration 044). */
   acknowledged_at?: string | null;
   acknowledged_rules_version?: string | null;
+  /** This member's own "which member recommended you?" pick (migration 048). */
+  recommended_by?: string | null;
   created_at: string;
 };
 
@@ -495,6 +502,8 @@ export type GroupMemberView = {
   /** Per-member payment declaration (migration 043); absent on older payloads. */
   payment_method?: "venmo" | "zelle" | null;
   payment_handle?: string | null;
+  /** This member's own recommender pick (migration 048); absent on older payloads. */
+  recommended_by?: string | null;
 };
 
 /** Shape produced by the group_payload SQL helper (all group RPCs). */
@@ -508,6 +517,10 @@ export type GroupDetails = OrderGroup & {
   share_amount: number;
   units_per_person?: number;
   open_token: string | null;
+  /** Whether this group's listing asks "which member recommended you?" at all. */
+  recommender_enabled?: boolean;
+  /** The club's recommender choices, for rendering the picker at join time. */
+  member_options?: string[];
   members: GroupMemberView[];
   // Present depending on which RPC returned it:
   my_status?: GroupMemberStatus;
@@ -1341,6 +1354,10 @@ export type Database = {
         Returns: undefined;
       };
       set_group_recommender: {
+        Args: { p_group_id: string; p_value: string };
+        Returns: undefined;
+      };
+      set_group_member_recommender: {
         Args: { p_group_id: string; p_value: string };
         Returns: undefined;
       };

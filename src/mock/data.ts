@@ -554,6 +554,8 @@ export const myGroups = [
     share_amount: 8.75,
     units_per_person: 3,
     open_token: "demo-open-token",
+    recommender_enabled: true,
+    member_options: ["Aarav", "Priya", "Sam"],
     members: groupMembers,
     my_status: "paid",
     my_member_id: "gm-1",
@@ -580,12 +582,14 @@ export const clubGroups = [
     club_venmo: "willow-lane-dance",
     share_amount: 4.25,
     units_per_person: 3,
+    // Legacy group-level pick (migration 043), kept alongside the new
+    // per-member field below so both old and new payload shapes render.
     recommended_by: "Aarav",
     members: [
-      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "dev-patel-3" },
-      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "607-555-0188" },
-      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false, payment_method: "venmo", payment_handle: "tombecker" },
-      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null },
+      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "dev-patel-3", recommended_by: "Aarav" },
+      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "607-555-0188", recommended_by: null },
+      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false, payment_method: "venmo", payment_handle: "tombecker", recommended_by: "Priya" },
+      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null, recommended_by: null },
     ],
   },
 ];

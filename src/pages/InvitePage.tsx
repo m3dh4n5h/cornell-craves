@@ -13,6 +13,8 @@ import { GoogleButton } from "@/components/GoogleButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { GroupDetails } from "@/types/database";
 
@@ -24,6 +26,7 @@ export default function InvitePage() {
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [recommender, setRecommender] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -65,6 +68,7 @@ export default function InvitePage() {
   const status = GROUP_STATUS_META[group.status];
   const isMember = Boolean(user && group.members.some((member) => member.user_id === user.id));
   const joinable = group.status === "filling" && !isMember;
+  const askRecommender = group.recommender_enabled && (group.member_options?.length ?? 0) > 0;
 
   const accept = async (ackVersion: string) => {
     setAccepting(true);
@@ -77,6 +81,15 @@ export default function InvitePage() {
     if (error) {
       toast.error(error.message);
       return;
+    }
+    // Best-effort, mirrors OrderForm: your own recommender pick on your own
+    // member row, independent of whoever else is in this group.
+    if (recommender) {
+      const { error: recError } = await supabase.rpc("set_group_member_recommender", {
+        p_group_id: group.id,
+        p_value: recommender,
+      });
+      if (recError) console.warn("recommender not saved:", recError.message);
     }
     toast.success("You're in. You'll pay your share once the group fills and orders close.");
     navigate("/orders");
@@ -158,13 +171,39 @@ export default function InvitePage() {
             <GoogleButton label="Sign in and join" redirectPath={`/invite/${token}`} />
           </div>
         ) : (
-          <div className="flex gap-2">
-            <Button className="flex-1" size="lg" loading={accepting} onClick={() => setRulesOpen(true)}>
-              Join and split
-            </Button>
-            <Button variant="ghost" size="lg" onClick={() => navigate("/")}>
-              No thanks
-            </Button>
+          <div>
+            {askRecommender && (
+              <div className="mb-4">
+                <Label htmlFor="invite-recommender" className="text-sm font-bold">
+                  Which member recommended you?
+                </Label>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Optional. Helps {group.club_name} credit the member who sent you.
+                </p>
+                <div className="mt-1.5">
+                  <Select
+                    id="invite-recommender"
+                    value={recommender}
+                    onChange={(e) => setRecommender(e.target.value)}
+                  >
+                    <option value="">No one in particular</option>
+                    {group.member_options!.map((member) => (
+                      <option key={member} value={member}>
+                        {member}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button className="flex-1" size="lg" loading={accepting} onClick={() => setRulesOpen(true)}>
+                Join and split
+              </Button>
+              <Button variant="ghost" size="lg" onClick={() => navigate("/")}>
+                No thanks
+              </Button>
+            </div>
           </div>
         )}
       </div>

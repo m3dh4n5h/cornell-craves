@@ -14,20 +14,13 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
   );
 }
 
-/**
- * Sits immediately left of Sign in / Sign out in the top bar.
- *
- * The label collapses to the icon below `lg` on purpose: with Feed, Map,
- * Cravings, Orders, Admin, Account and Sign out already competing for the row,
- * a seventh word overflows a 768px viewport. The icon keeps About reachable at
- * every desktop width, and the accessible name is always the full phrase.
- */
+/** Sits immediately left of Sign in / Sign out in the top bar. */
 function AboutLink() {
   return (
     <NavLink to="/about" className={navLinkClass} aria-label="About Cornell Craves">
       <span className="flex items-center gap-1.5">
         <Info className="size-4 shrink-0" aria-hidden="true" />
-        <span className="hidden lg:inline">About</span>
+        <span>About</span>
       </span>
     </NavLink>
   );
@@ -53,6 +46,17 @@ export function Navbar() {
           aria-label="Cornell Craves home"
         >
           <CravesLogo size={32} />
+        </Link>
+
+        {/* Bottom tab bar carries primary navigation on mobile, but About lives
+            nowhere else reachable up top, so it gets its own corner link here. */}
+        <Link
+          to="/about"
+          aria-label="About Cornell Craves"
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:bg-primary/15 hover-fine:text-ink md:hidden"
+        >
+          <Info className="size-4 shrink-0" aria-hidden="true" />
+          <span>About</span>
         </Link>
 
         {/* On mobile the bottom tab bar carries navigation; the top bar stays clean. */}

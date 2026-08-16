@@ -290,15 +290,16 @@ export default function OrderForm() {
     setSplitType(sizes[0] ?? 2);
   };
 
-  // Best-effort: attach the creator's "which member recommended you?" pick to
-  // the group, mirroring set_order_recommender on solo orders.
+  // Best-effort: attach this member's own "which member recommended you?" pick
+  // to their row in the group. Every member sets their own (migration 048),
+  // not just the creator, mirroring set_order_recommender on solo orders.
   const saveGroupRecommender = async (groupId: string) => {
     if (!recommender) return;
-    const { error: recError } = await supabase.rpc("set_group_recommender", {
+    const { error: recError } = await supabase.rpc("set_group_member_recommender", {
       p_group_id: groupId,
       p_value: recommender,
     });
-    if (recError) console.warn("group recommender not saved:", recError.message);
+    if (recError) console.warn("recommender not saved:", recError.message);
   };
 
   const doCreateGroup = async (ackVersion: string) => {
@@ -360,8 +361,9 @@ export default function OrderForm() {
       return;
     }
     const result = data as unknown as { group_id: string; open_token?: string | null; joined: boolean };
-    // Only the creator of a fresh group can set the recommender.
-    if (!result.joined) await saveGroupRecommender(result.group_id);
+    // Every member sets their own recommender now, whether they joined an
+    // existing group or started a fresh one.
+    await saveGroupRecommender(result.group_id);
     if (result.joined) {
       toast.success("You joined an open group. Track it in My orders.");
       navigate("/orders");
@@ -477,8 +479,8 @@ export default function OrderForm() {
     );
   }
 
-  // "Which member recommended you?" applies to solo orders AND splits, so it
-  // renders in both modes instead of vanishing when split mode turns on.
+  // "Which member recommended you?" is asked once, up front, and applies
+  // whether this becomes a solo order, a new split, or a join of an open one.
   const recommenderSection =
     listing.recommender_enabled && (listing.clubs?.member_options?.length ?? 0) > 0 ? (
       <section className="rounded-2xl border border-border bg-surface-raised p-4">
@@ -636,6 +638,10 @@ export default function OrderForm() {
           </ul>
           <FieldError message={showErrors ? errors.items : undefined} />
         </section>
+
+        {/* Asked once, up front, so it applies whichever path is taken next:
+            solo checkout, starting a split, or joining one. */}
+        {recommenderSection}
 
         {/* Split order mode (hidden when the club has disabled group ordering) */}
         {groupsEnabled && (
@@ -821,8 +827,6 @@ export default function OrderForm() {
             )}
           </section>
         )}
-
-        {splitMode && recommenderSection}
         </>
         )}
 
@@ -893,8 +897,6 @@ export default function OrderForm() {
             )}
           </AnimatePresence>
         </section>
-
-        {recommenderSection}
 
         {/* 5-6. Payment */}
         <section className="rounded-2xl border border-border bg-surface-raised p-4">

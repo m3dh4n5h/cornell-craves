@@ -106,6 +106,20 @@ function OnboardingGate() {
   return null;
 }
 
+/**
+ * Plain BrowserRouter does not touch scroll position on navigation (only real
+ * browser back/forward gets native restoration), so clicking a Link while
+ * scrolled down lands the next page at that same scroll offset. Reset to the
+ * top on every route change instead.
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 // Consumer pages a club owner may never open. Clubs CAN browse the Feed
 // ("/") and Map; they just can't crave, order, or reserve as a student.
 const CLUB_BLOCKED_PREFIXES = ["/cravings", "/orders", "/reservations"];
@@ -150,6 +164,7 @@ export default function App() {
         <ClubProvider>
         <ProfileProvider>
         <TourProvider>
+        <ScrollToTop />
         <OnboardingGate />
         <RoleGate />
         <div className="flex min-h-dvh flex-col pb-14 md:pb-0">

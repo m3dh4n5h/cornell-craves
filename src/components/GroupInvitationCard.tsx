@@ -5,6 +5,8 @@ import { brandInitials, brandTint } from "@/lib/brands";
 import { formatPrice } from "@/lib/format";
 import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { GroupDetails } from "@/types/database";
 
@@ -17,6 +19,8 @@ interface GroupInvitationCardProps {
 export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCardProps) {
   const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [recommender, setRecommender] = useState("");
+  const askRecommender = invite.recommender_enabled && (invite.member_options?.length ?? 0) > 0;
 
   const accept = async (ackVersion: string) => {
     setBusy("accept");
@@ -29,6 +33,15 @@ export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCard
     if (error) {
       toast.error(error.message);
       return;
+    }
+    // Best-effort, mirrors OrderForm: your own recommender pick on your own
+    // member row, independent of whoever else is in this group.
+    if (recommender) {
+      const { error: recError } = await supabase.rpc("set_group_member_recommender", {
+        p_group_id: invite.id,
+        p_value: recommender,
+      });
+      if (recError) console.warn("recommender not saved:", recError.message);
     }
     toast.success("You joined the group");
     onResponded();
@@ -67,6 +80,29 @@ export function GroupInvitationCard({ invite, onResponded }: GroupInvitationCard
           </p>
         </div>
       </div>
+
+      {askRecommender && (
+        <div className="mt-3">
+          <Label htmlFor={`invite-recommender-${invite.invite_token}`} className="text-xs font-semibold">
+            Which member recommended you?
+          </Label>
+          <div className="mt-1.5">
+            <Select
+              id={`invite-recommender-${invite.invite_token}`}
+              value={recommender}
+              onChange={(e) => setRecommender(e.target.value)}
+            >
+              <option value="">No one in particular</option>
+              {invite.member_options!.map((member) => (
+                <option key={member} value={member}>
+                  {member}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 flex gap-2">
         <Button size="sm" loading={busy === "accept"} disabled={busy === "decline"} onClick={() => setRulesOpen(true)}>
           Accept

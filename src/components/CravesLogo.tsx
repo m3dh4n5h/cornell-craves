@@ -49,7 +49,7 @@ function FlameGlyph({ height }: { height: number }) {
         d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"
         fill="var(--color-primary)"
         stroke="var(--color-primary)"
-        strokeWidth={1.6}
+        strokeWidth={1}
         strokeLinejoin="round"
       />
     </svg>
@@ -105,10 +105,21 @@ export function CravesLogo({
           Cornell
         </p>
       )}
-      <div aria-hidden="true" style={{ display: "flex", alignItems: "center", gap: size * 0.09 }}>
-        <CravesMark size={size * 0.74} onDark={onDark} />
+      <div aria-hidden="true" style={{ display: "flex", alignItems: "flex-end", gap: size * 0.09 }}>
+        {/* flex-end aligns element BOXES to the line box's bottom edge, not to
+            where R/VES actually sit: lineHeight 0.9 is tighter than this font's
+            natural metrics, so the glyphs' true baseline sits well above the
+            line box's bottom (measured ~5.3px above it at a 32px cap height).
+            Each SVG also carries a little viewBox padding below its own ink.
+            Both nudges are folded into one measured correction per glyph, so
+            the ink itself lines up with the letters' actual baseline. */}
+        <span style={{ transform: `translateY(${size * -0.1393}px)` }}>
+          <CravesMark size={size * 0.74} onDark={onDark} />
+        </span>
         <span style={letterStyle}>R</span>
-        <FlameGlyph height={size * 0.74} />
+        <span style={{ transform: `translateY(${size * -0.1435}px)` }}>
+          <FlameGlyph height={size * 0.74} />
+        </span>
         <span style={letterStyle}>VES</span>
       </div>
       {showRule && (

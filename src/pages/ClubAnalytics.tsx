@@ -39,6 +39,13 @@ type ListingLite = Pick<
   "id" | "title" | "brand" | "avg_rating" | "review_count" | "items" | "active"
 >;
 
+const RANGE_LABELS: Record<7 | 30 | 90 | 180, string> = {
+  7: "7 days",
+  30: "30 days",
+  90: "3 months",
+  180: "6 months",
+};
+
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-4">
@@ -71,7 +78,7 @@ export default function ClubAnalytics() {
   const [groups, setGroups] = useState<GroupDetails[]>([]);
   const [listings, setListings] = useState<ListingLite[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<7 | 30>(30);
+  const [range, setRange] = useState<7 | 30 | 90 | 180>(30);
 
   const userId = user?.id ?? null;
 
@@ -151,7 +158,13 @@ export default function ClubAnalytics() {
     const buyers = new Set<string>();
     const itemAgg = new Map<string, { units: number; revenue: number }>();
     const byListing = new Map<string, { revenue: number; orders: number }>();
-    const recommenders = new Map<string, number>();
+    const recommenders = new Map<string, { people: number; money: number }>();
+    const bumpRecommender = (name: string, money: number) => {
+      const entry = recommenders.get(name) ?? { people: 0, money: 0 };
+      entry.people += 1;
+      entry.money += money;
+      recommenders.set(name, entry);
+    };
     const buyerAgg = new Map<string, { name: string; orders: number; spend: number }>();
     const tagUnits = new Map<DietaryTagId, number>();
     let unitsInRange = 0;
@@ -191,7 +204,7 @@ export default function ClubAnalytics() {
         unitsInRange += Number(line.qty);
       }
       const ref = order.recommended_by?.trim();
-      if (ref) recommenders.set(ref, (recommenders.get(ref) ?? 0) + Number(order.total));
+      if (ref) bumpRecommender(ref, Number(order.total));
     }
 
     let groupRevenue = 0;
@@ -209,6 +222,11 @@ export default function ClubAnalytics() {
         bumpItem(group.item_name, perPerson, Number(group.share_amount));
         bumpTags(group.listing_id, group.item_name, perPerson);
         unitsInRange += perPerson;
+        // Each member credits their own recommender with their own share, so
+        // a 4-way split with 4 different referrals counts as 4 people and 4
+        // shares of money, not 1 (Tranche: split recommender attribution).
+        const memberRef = member.recommended_by?.trim();
+        if (memberRef) bumpRecommender(memberRef, Number(group.share_amount));
       }
     }
 
@@ -254,8 +272,9 @@ export default function ClubAnalytics() {
       .slice(0, 8);
 
     const leaderboard = [...recommenders.entries()]
-      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
-      .sort((a, b) => b.value - a.value);
+      .map(([name, agg]) => ({ name, people: agg.people, money: Math.round(agg.money * 100) / 100 }))
+      .sort((a, b) => b.money - a.money);
+    const mostReferrals = [...leaderboard].sort((a, b) => b.people - a.people)[0] ?? null;
 
     const topBuyers = [...buyerAgg.values()]
       .sort((a, b) => b.spend - a.spend)
@@ -339,6 +358,7 @@ export default function ClubAnalytics() {
       items,
       itemRevenueChart,
       leaderboard,
+      mostReferrals,
       topBuyers,
       trend,
       heatmap,
@@ -367,7 +387,7 @@ export default function ClubAnalytics() {
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
         <div className="flex gap-1 rounded-full border border-border p-1" role="radiogroup" aria-label="Time range">
-          {([7, 30] as const).map((option) => (
+          {([7, 30, 90, 180] as const).map((option) => (
             <button
               key={option}
               type="button"
@@ -379,13 +399,13 @@ export default function ClubAnalytics() {
                 range === option ? "bg-ink text-surface-raised" : "text-ink-muted hover-fine:text-ink",
               )}
             >
-              {option} days
+              {RANGE_LABELS[option]}
             </button>
           ))}
         </div>
       </div>
       <p className="mt-1 text-sm text-ink-muted">
-        Money figures count verified payments only, over the last {range} days.
+        Money figures count verified payments only, over the last {RANGE_LABELS[range]}.
       </p>
 
       {listings.length === 0 ? (
@@ -565,10 +585,31 @@ export default function ClubAnalytics() {
             <section className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
               <h2 className="text-base font-bold">Recommender leaderboard</h2>
               <p className="mt-0.5 text-xs text-ink-muted">
-                Revenue from orders that credited each member. Who raised the most money.
+                Every solo order and split share that credited a member, split shares counted at
+                the person's own share cost. Sorted by money raised
+                {computed.mostReferrals && computed.mostReferrals.name !== computed.leaderboard[0].name
+                  ? ` — ${computed.mostReferrals.name} sent the most people (${computed.mostReferrals.people}).`
+                  : "."}
               </p>
-              <div className="mt-3">
-                <RankBarChart data={computed.leaderboard} money />
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[360px] text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
+                      <th className="pb-2 font-semibold">Member</th>
+                      <th className="pb-2 text-right font-semibold">People referred</th>
+                      <th className="pb-2 text-right font-semibold">Money raised</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {computed.leaderboard.map((entry) => (
+                      <tr key={entry.name}>
+                        <td className="py-2 pr-2 font-semibold">{entry.name}</td>
+                        <td className="py-2 text-right font-mono">{entry.people}</td>
+                        <td className="py-2 text-right font-mono font-bold">{formatPrice(entry.money)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
