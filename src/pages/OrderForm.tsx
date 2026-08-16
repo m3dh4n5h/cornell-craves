@@ -307,10 +307,14 @@ export default function OrderForm() {
       return;
     }
     setCreatingGroup(true);
-    const emails = splitEmails
-      .split(/[,\n;]+/)
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry));
+    const emails = [
+      ...new Set(
+        splitEmails
+          .split(/[,\n;]+/)
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry)),
+      ),
+    ];
     const { data, error: rpcError } = await supabase.rpc("create_order_group", {
       p_listing_id: listing.id,
       p_item_name: splitItem.name,

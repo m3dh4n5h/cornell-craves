@@ -1,9 +1,10 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Flame, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { Button } from "@/components/ui/button";
+import { CravesLogo } from "@/components/CravesLogo";
 import { cn } from "@/lib/utils";
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
@@ -48,15 +49,10 @@ export function Navbar() {
       <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-2 px-4">
         <Link
           to={club ? "/dashboard" : "/"}
-          className="flex shrink-0 items-center gap-2 rounded-xl"
+          className="flex shrink-0 items-center rounded-xl"
           aria-label="Cornell Craves home"
         >
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary">
-            <Flame className="size-5 text-on-primary" aria-hidden="true" />
-          </span>
-          <span className="font-display text-lg font-extrabold tracking-tight">
-            Cornell Craves
-          </span>
+          <CravesLogo size={32} />
         </Link>
 
         {/* On mobile the bottom tab bar carries navigation; the top bar stays clean. */}

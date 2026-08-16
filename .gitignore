@@ -171,3 +171,12 @@ supabase/.branches/
 # Generated "apply everything" SQL bundles — duplicate the numbered migrations
 # and historically embedded the admin email. Keep them local, not on GitHub.
 /APPLY_PENDING_*.sql
+
+# design-sync: staged scripts, build output, machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+.design-sync/compiled.css
+.design-sync/types/

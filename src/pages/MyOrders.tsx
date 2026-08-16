@@ -176,10 +176,14 @@ function GroupCard({
 
   // Any member of a filling group can invite others (Tranche 4 #6).
   const inviteByEmail = async () => {
-    const emails = inviteEmails
-      .split(/[,\n;]+/)
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry));
+    const emails = [
+      ...new Set(
+        inviteEmails
+          .split(/[,\n;]+/)
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry)),
+      ),
+    ];
     if (emails.length === 0) {
       toast.error("Add at least one valid email.");
       return;

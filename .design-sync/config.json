@@ -1,0 +1,44 @@
+{
+  "projectId": "c1474fa1-a041-4c59-839e-a8af05f91ce7",
+  "shape": "package",
+  "pkg": "cornell-craves",
+  "globalName": "CornellCraves",
+  "entry": "./src/design-system.ts",
+  "srcDir": "src",
+  "tsconfig": "./tsconfig.json",
+  "buildCmd": "npm run build && npx tsc -p .design-sync/tsconfig.types.json && node .design-sync/prep-css.mjs",
+  "cssEntry": ".design-sync/compiled.css",
+  "componentSrcMap": {
+    "Badge": "src/components/ui/badge.tsx",
+    "Button": "src/components/ui/button.tsx",
+    "Combobox": "src/components/ui/combobox.tsx",
+    "DateTimeField": "src/components/ui/datetime.tsx",
+    "Input": "src/components/ui/input.tsx",
+    "Label": "src/components/ui/label.tsx",
+    "Select": "src/components/ui/select.tsx",
+    "Textarea": "src/components/ui/textarea.tsx",
+    "Toaster": "src/components/ui/toaster.tsx",
+    "AllergenIcon": "src/components/AllergenIcon.tsx",
+    "DeadlineTimer": "src/components/DeadlineTimer.tsx",
+    "DietaryTag": "src/components/DietaryTag.tsx",
+    "EmptyState": "src/components/EmptyState.tsx",
+    "RatingStars": "src/components/RatingStars.tsx",
+    "SkeletonCard": "src/components/SkeletonCard.tsx",
+    "TemplateCard": "src/components/TemplateCard.tsx",
+    "GroupInviteLink": "src/components/GroupInviteLink.tsx",
+    "SplitOrderToggle": "src/components/SplitOrderToggle.tsx",
+    "SplitTypeSelector": "src/components/SplitTypeSelector.tsx",
+    "VenmoButton": "src/components/VenmoButton.tsx"
+  },
+  "extraFonts": [
+    ".design-sync/fonts.css"
+  ],
+  "guidelinesGlob": [],
+  "overrides": {
+    "Toaster": {
+      "cardMode": "single",
+      "primaryStory": "Success"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

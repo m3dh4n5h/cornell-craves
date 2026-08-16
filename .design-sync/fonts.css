@@ -1,0 +1,72 @@
+/*
+ * Cornell Craves brand faces for the design bundle.
+ *
+ * Why this file exists: the compiled app CSS declares @font-face with absolute,
+ * app-server URLs (/assets/epilogue-…woff2, /fonts/cabinet-grotesk-400.woff2)
+ * that cannot resolve inside a design bundle, so every design would silently
+ * render in a system fallback. buildCmd strips those rules from compiled.css and
+ * this file re-declares the same two families against paths design-sync can
+ * actually copy, using the repo's own sources: Cabinet Grotesk is self-hosted
+ * (Fontshare, no npm package), Epilogue comes from @fontsource/epilogue.
+ *
+ * Latin subset only. The app also ships latin-ext and vietnamese subsets; the
+ * design system renders English UI, so those are deliberately left out.
+ */
+
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("../public/fonts/cabinet-grotesk-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("../public/fonts/cabinet-grotesk-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("../public/fonts/cabinet-grotesk-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("../public/fonts/cabinet-grotesk-800.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Epilogue";
+  src: url("../node_modules/@fontsource/epilogue/files/epilogue-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Epilogue";
+  src: url("../node_modules/@fontsource/epilogue/files/epilogue-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Epilogue";
+  src: url("../node_modules/@fontsource/epilogue/files/epilogue-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Epilogue";
+  src: url("../node_modules/@fontsource/epilogue/files/epilogue-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
