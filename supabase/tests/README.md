@@ -14,8 +14,9 @@ These are the 28 scenarios that caught (and now guard against) the
 ```bash
 npm i --no-save @electric-sql/pglite   # one time; not a project dependency
 node supabase/tests/simulate.mjs       # expect: 28 passed, 0 failed
-node supabase/tests/split-edge.mjs     # expect: 88 passed, 0 failed
+node supabase/tests/split-edge.mjs     # expect: 96 passed, 0 failed
 node supabase/tests/admin-roles.mjs    # expect: 41 passed, 0 failed
+node supabase/tests/split-attack.mjs   # expect: 41 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,
@@ -46,6 +47,19 @@ or remove themselves, that suspension revokes `is_admin()` — and therefore eve
 RLS policy that depends on it — on the very next request, and that addresses are
 matched case- and whitespace-insensitively so `Ops@Example.com ` and
 `ops@example.com` can never become two rows.
+
+`split-attack.mjs` is the adversarial counterpart to `split-edge.mjs`: every
+check is written from the attacker's side, so a PASS means the attack was
+blocked. It reproduces the seven gaps closed by migration 052 — chiefly that
+`order_groups` used to be directly writable by its creator (who could flip their
+own group to `paid` and release their own QR pass while a co-member still owed
+money, or reprice the group to $0.01 on the club's dashboard), and that
+`group_payload()` kept Postgres's default PUBLIC execute grant so a signed-out
+caller could enumerate every group and read every member's Venmo/Zelle handle,
+bypassing 051 entirely. It also pins the things that must keep WORKING:
+the anon invite preview still resolves, an invitee can still decline their own
+invitation, a filled group can still be reactivated for payment on a closed
+drop, and inviting a couple of friends is unaffected by the fan-out cap.
 
 Every guard is asserted against the database rather than the UI, because
 `AdminRoster.tsx` only hides buttons; `is_owner()` is what actually stops

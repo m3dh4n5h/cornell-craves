@@ -302,7 +302,7 @@ function GroupCard({
           </p>
           <p className="mt-0.5 text-xs text-ink-muted">
             You have until {formatEasternDateTime(group.deadline)}. If anyone in the group misses the
-            window, it cancels and no one is charged.
+            window it cancels; anyone who already paid gets refunded by the club directly.
           </p>
 
           {/* Where the money goes: the club's handles, visible to EVERY member. */}
@@ -442,7 +442,16 @@ function GroupCard({
       {group.status === "canceled" && (
         <p className="mt-3 text-xs text-ink-muted">
           This split was canceled — it either didn't fill in time or someone didn't pay within the
-          window. No one was charged. The club can reactivate it; you'll get an email if that happens.
+          window.{" "}
+          {myPaid ? (
+            <>
+              You had already paid, so {group.club_name} owes you a refund — contact them directly,
+              since Cornell Craves never held your money.
+            </>
+          ) : (
+            <>You were not charged.</>
+          )}{" "}
+          The club can reactivate it; you'll get an email if that happens.
         </p>
       )}
     </div>

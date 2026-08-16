@@ -181,6 +181,8 @@ function SplitGroupCard({
   const payable = PAYABLE_GROUP_STATUSES.includes(group.status);
   const busy = busyId === group.id;
   const orderDeadline = group.order_deadline ?? group.deadline;
+  const refundsOwed =
+    group.status === "canceled" ? group.members.filter((member) => member.status === "paid") : [];
   return (
     <div className="rounded-2xl border border-dashed border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -216,6 +218,18 @@ function SplitGroupCard({
       {group.status === "full" && (
         <p className="mt-2 rounded-lg bg-surface px-3 py-2 text-xs text-ink-muted">
           Full and waiting. Members owe nothing until you close ordering; then they get 24 hours to pay.
+        </p>
+      )}
+
+      {/* A canceled group can still contain members you already verified. They
+          paid you for real, so surface the refund you owe rather than letting it
+          disappear into a "canceled" badge. */}
+      {group.status === "canceled" && refundsOwed.length > 0 && (
+        <p className="mt-2 rounded-lg bg-urgent/10 px-3 py-2 text-xs text-ink">
+          <span className="font-semibold">Refund owed.</span> This group canceled after you verified{" "}
+          {refundsOwed.map((member) => member.name).join(", ")}. They each paid{" "}
+          {formatPrice(Number(group.share_amount))} straight to your Venmo or Zelle, so refund them
+          directly — Cornell Craves never held it.
         </p>
       )}
 

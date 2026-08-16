@@ -480,6 +480,18 @@ async function scanGroupQr(
   if (group.status === "canceled") {
     return { result: "inactive", message: "This group was canceled", order: summary, holder };
   }
+  // The whole group must be verified, not just this member. Checking only
+  // member.status would honour a pass that leaked out before everyone paid;
+  // the website (get_my_groups) and the pass emails both gate on the GROUP
+  // being 'paid', so the scanner has to agree or it becomes the weak link.
+  if (group.status !== "paid") {
+    return {
+      result: "inactive",
+      message: "This group is not fully paid yet, so no pass is valid",
+      order: summary,
+      holder,
+    };
+  }
   if (member.status !== "paid" || !member.qr_encrypted) {
     return { result: "inactive", message: "This member's share is not verified yet", order: summary, holder };
   }
@@ -759,15 +771,49 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
     );
   }
   if (group.status === "canceled") {
-    return emailGroupMembers(
-      group,
-      "Your split order was canceled",
-      paragraph(
-        `The split for ${escapeHtml(group.item_name)} was canceled${
-          previousStatus === "filling" ? " because it did not fill in time" : " before everyone paid"
-        }, so nobody was charged.`,
-      ) + paragraph("If the club reactivates it, you will get another email with a fresh deadline."),
+    // "Nobody was charged" is only true for members who had NOT yet paid. Anyone
+    // the club already verified sent real money over Venmo/Zelle, and Cornell
+    // Craves never holds it - so those members are told a refund is owed and by
+    // whom, instead of being told nothing happened.
+    const { data: memberRows } = await supabase
+      .from("order_group_members")
+      .select("user_id, status")
+      .eq("group_id", group.id);
+    const paidUserIds = new Set(
+      (memberRows ?? []).filter((m) => m.status === "paid").map((m) => m.user_id as string),
     );
+    const { listing, club } = await orderContext(group.listing_id);
+    const reason =
+      previousStatus === "filling" ? " because it did not fill in time" : " before everyone paid";
+    const clubName = club?.name ?? "The club";
+
+    let sent = 0;
+    for (const member of await groupMemberEmails(group.id)) {
+      const alreadyPaid = paidUserIds.has(member.user_id);
+      const body = alreadyPaid
+        ? paragraph(
+            `The split for ${escapeHtml(group.item_name)} was canceled${reason}. You had already paid your ${share} share, so ${escapeHtml(clubName)} owes you a refund.`,
+          ) +
+          paragraph(
+            `Cornell Craves never holds the money - your payment went straight to ${escapeHtml(clubName)}, so contact them to get it back. No pass was issued and there is nothing to pick up.`,
+          )
+        : paragraph(
+            `The split for ${escapeHtml(group.item_name)} was canceled${reason}, and you were not charged.`,
+          ) + paragraph("If the club reactivates it, you will get another email with a fresh deadline.");
+      try {
+        await sendEmail(member.email, `Your split order was canceled: ${listing.title}`, emailShell(
+          "Your split order was canceled",
+          body,
+          "Open my orders",
+          `${SITE_URL}/orders`,
+        ));
+        sent += 1;
+      } catch (error) {
+        console.error(`Group cancel email failed for ${member.email}:`, error);
+      }
+      await sleep(550);
+    }
+    return sent;
   }
   if (group.status === "reactivated") {
     return emailGroupMembers(
@@ -1185,8 +1231,22 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     // Called hourly by pg_cron with the service role key. `auto_cancel_groups`
-    // is kept as an alias so an existing cron schedule keeps working.
+    // is kept as an alias so an existing cron schedule keeps working. This
+    // drives every deadline transition and fires member emails, so it must
+    // present the service role key (or the webhook secret) - it used to be
+    // reachable by anyone who knew the function URL.
     if (body.action === "process_group_deadlines" || body.action === "auto_cancel_groups") {
+      const bearer = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      // Both comparisons require a non-empty configured secret, so a missing
+      // env var can never make an empty header "match".
+      const authorized =
+        (serviceKey.length > 0 && secretsMatch(bearer, serviceKey)) ||
+        (WEBHOOK_SECRET.length > 0 &&
+          secretsMatch(req.headers.get("x-webhook-secret") ?? "", WEBHOOK_SECRET));
+      if (!authorized) {
+        return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+      }
       const result = await processGroupDeadlines();
       return Response.json({ ok: true, ...result });
     }
