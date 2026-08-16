@@ -140,7 +140,7 @@ export function Combobox({
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         className={cn(
-          "h-11 w-full rounded-xl border border-border bg-surface-raised pl-3.5 pr-10 text-base text-ink transition-[border-color,box-shadow] duration-150 [transition-timing-function:var(--ease-out)] placeholder:text-ink-muted/70 focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40",
+          "h-11 w-full truncate rounded-xl border border-border bg-surface-raised pl-3.5 pr-10 text-base text-ink transition-[border-color,box-shadow] duration-150 [transition-timing-function:var(--ease-out)] placeholder:text-ink-muted/70 focus-visible:border-primary-dark focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40",
           invalid && "border-accent focus-visible:border-accent focus-visible:outline-accent/30",
         )}
       />

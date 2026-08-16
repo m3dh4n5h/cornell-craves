@@ -13,12 +13,12 @@ import {
 } from "@/components/ItemsEditor";
 import { TemplateCard } from "@/components/TemplateCard";
 import { EmptyState } from "@/components/EmptyState";
+import { LocationCombobox } from "@/components/LocationCombobox";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateTimeField } from "@/components/ui/datetime";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
@@ -362,18 +362,13 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
         </div>
         <div>
           <Label htmlFor="post-location">Pickup location (optional)</Label>
-          <Select
+          <LocationCombobox
             id="post-location"
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-          >
-            <option value="">No map pin</option>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.name}
-              </option>
-            ))}
-          </Select>
+            locationId={locationId}
+            locations={locations}
+            onChange={setLocationId}
+            placeholder="No map pin"
+          />
         </div>
       </div>
       {trimmedBrand.length >= 2 && !isPostable && (
@@ -415,7 +410,11 @@ export default function ClubTemplates() {
         .eq("club_id", userId)
         .order("created_at", { ascending: false })
         .returns<RecurringTemplate[]>(),
-      supabase.from("campus_locations").select("*").order("name"),
+      supabase
+        .from("campus_locations")
+        .select("*")
+        .or(`created_by.is.null,created_by.eq.${userId}`)
+        .order("name"),
     ]);
     if (templatesResult.error) {
       toast.error(templatesResult.error.message);

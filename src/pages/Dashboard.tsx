@@ -31,6 +31,7 @@ import {
   type ItemDraft,
 } from "@/components/ItemsEditor";
 import { EmptyState } from "@/components/EmptyState";
+import { LocationCombobox } from "@/components/LocationCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -154,18 +155,14 @@ function SlotsEditor({
             <Label htmlFor={`slot-location-${index}`} className="mb-1 text-xs">
               Pickup spot for this day
             </Label>
-            <Select
+            <LocationCombobox
               id={`slot-location-${index}`}
-              value={slot.locationId}
-              onChange={(e) => update(index, { locationId: e.target.value })}
-            >
-              <option value="">No specific spot</option>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.name}
-                </option>
-              ))}
-            </Select>
+              locationId={slot.locationId}
+              locations={locations}
+              onChange={(locationId) => update(index, { locationId })}
+              placeholder="No specific spot"
+              emptyHint="Not listed? Add a custom spot below."
+            />
           </div>
           {slot.reserved > 0 ? (
             <Badge variant="default" className="mb-2.5">
@@ -280,18 +277,13 @@ function SpotsEditor({
               <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
                 Campus spot
               </Label>
-              <Select
+              <LocationCombobox
                 id={`spot-location-${index}`}
-                value={spot.locationId}
-                onChange={(e) => update(index, { locationId: e.target.value })}
-              >
-                <option value="">Pick a location</option>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </Select>
+                locationId={spot.locationId}
+                locations={locations}
+                onChange={(locationId) => update(index, { locationId })}
+                emptyHint="Not listed? Add a custom spot below."
+              />
             </div>
             <div className="min-w-0 flex-1 basis-full sm:basis-36">
               <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
@@ -841,14 +833,14 @@ function ListingForm({
             <Input
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
-              placeholder="Spot name (e.g. Phi Psi house)"
+              placeholder="RPCC"
               aria-label="Custom spot name"
               className="h-10"
             />
             <Input
               value={customAddress}
               onChange={(e) => setCustomAddress(e.target.value)}
-              placeholder="312 Thurston Ave, Ithaca NY"
+              placeholder="107 Jessup Rd, Ithaca, NY"
               aria-label="Street address"
               className="h-10"
             />
@@ -1507,6 +1499,7 @@ export default function Dashboard() {
                 onEdit={() => {
                   setDuplicateOf(null);
                   setFormMode(listing.id);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onDuplicate={() => {
                   setDuplicateOf(listing);
