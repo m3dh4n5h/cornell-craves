@@ -263,6 +263,12 @@ const anonView = await asUser(db, null, async () =>
 const leaked = JSON.stringify(anonView);
 check("anon token payload leaks no QR tokens", !leaked.includes("tok-bob") && !leaked.includes("qr_encrypted"));
 check("anon token payload leaks no pickup codes", !leaked.includes("ABCDEFGH12") && !leaked.includes("pickup_code"));
+// (051) bob's Venmo/Zelle handle is still on file at this point (S3 set it and
+// nothing since has cleared it) - an anon holder of the invite link must not
+// see it, even though members and the club legitimately do (checked above).
+check("anon token payload leaks no payment method key", !leaked.includes('"payment_method"'));
+check("anon token payload leaks no payment handle key", !leaked.includes('"payment_handle"'));
+check("anon token payload leaks no member's actual payment handle", !leaked.includes("bob7@cornell.edu"));
 
 // Canceled group hides everything again.
 await db.query(`update public.order_groups set status='canceled' where id=$1`, [pub.group_id]);
@@ -468,5 +474,30 @@ check("reactivate refuses a group that is not canceled", !r.ok);
 // A non-owner cannot open payment or reactivate either.
 r = await attempt(() => asUser(db, noGroupsClub, () => db.query(`select public.open_group_payment($1, null)`, [gr1.group_id])));
 check("non-owner cannot open payment", !r.ok);
+
+// =====================================================================
+console.log("\nS11: joining past the order deadline (050)");
+
+// accept_group_invite: a "filling" group whose order deadline already passed
+// must refuse the join, even though process_group_deadlines has not yet run
+// to flip its status to canceled (it only runs hourly).
+const j1 = await createGroup(alice, mainListing, "Sixpack", 3, [], "public"); // needs 3, only alice so far
+await db.query(`update public.order_groups set order_deadline = now() - interval '1 minute' where id = $1`, [j1.group_id]);
+r = await attempt(() => acceptInvite(bob, j1.open_token));
+check("accept_group_invite rejects a filling group past its order deadline", !r.ok, r.ok ? "was accepted" : "");
+check("...and does not add the member", (await membersOf(j1.group_id)).length === 1);
+check("the deadline job (once it runs) still cancels it normally", await runDeadlineJob().then(() => groupRow(j1.group_id)).then((g) => g.status === "canceled"));
+
+// join_or_create_public_group: must never MATCH an expired-but-still-'filling'
+// group. join_or_create_public_group's match query scopes by listing_id, so a
+// dedicated listing (rather than hunting for an item/split-size combo unused
+// by every other section) guarantees j2 is the only possible match regardless
+// of what earlier sections left behind.
+const j2Listing = await seedListing(clubUser.id, "S11 isolation drop", [{ name: "Item", price: 6, quantity: 6 }]);
+const j2 = await createGroup(charlie, j2Listing, "Item", 3, [], "public"); // needs 3, only charlie so far
+await db.query(`update public.order_groups set order_deadline = now() - interval '1 minute' where id = $1`, [j2.group_id]);
+const j2join = await joinPublic(dana, j2Listing, "Item", 3);
+check("join_or_create_public_group never matches an expired group", j2join.group_id !== j2.group_id);
+check("...falls through to creating a fresh group instead", j2join.joined === false, `joined=${j2join.joined}`);
 
 summary();

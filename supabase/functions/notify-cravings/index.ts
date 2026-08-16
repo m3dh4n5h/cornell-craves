@@ -836,12 +836,16 @@ async function verifyGroupPayment(
     throw new Error("This group is not collecting payment yet");
   }
 
+  // .neq("status", "paid") makes this a no-op on a duplicate/raced call for a
+  // member already verified, instead of silently regenerating (and thereby
+  // orphaning the previously-emailed) token and pickup code.
   const token = await signToken({ g: group.id, m: memberId, ts: Date.now() });
   const pickupCode = genPickupCode();
   await supabase
     .from("order_group_members")
     .update({ status: "paid", qr_encrypted: token, pickup_code: pickupCode })
-    .eq("id", memberId);
+    .eq("id", memberId)
+    .neq("status", "paid");
 
   if (group.status !== "payment_in_progress") {
     await supabase.from("order_groups").update({ status: "payment_in_progress" }).eq("id", group.id);
@@ -859,7 +863,19 @@ async function verifyGroupPayment(
     return { ok: true, all_paid: false };
   }
 
-  await supabase.from("order_groups").update({ status: "paid" }).eq("id", group.id);
+  // Whichever call's UPDATE actually flips the group (the .in(...) filter only
+  // matches a group not already 'paid') is the one that sends pass emails, so
+  // a raced double-verify on the last unpaid member can never double-email
+  // everyone their pass.
+  const { data: groupNewlyPaid } = await supabase
+    .from("order_groups")
+    .update({ status: "paid" })
+    .eq("id", group.id)
+    .in("status", ["payment_in_progress", "reactivated"])
+    .select("id");
+  if (!groupNewlyPaid || groupNewlyPaid.length === 0) {
+    return { ok: true, all_paid: true };
+  }
 
   // Everyone has paid: email each member their individual pass.
   const { data: members } = await supabase

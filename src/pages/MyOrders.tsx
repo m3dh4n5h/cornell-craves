@@ -356,7 +356,12 @@ function GroupCard({
               How are you paying your share?
             </p>
             <div className="mt-1.5 flex gap-2" role="radiogroup" aria-label="Your payment method">
-              {(["venmo", "zelle"] as const).map((method) => (
+              {/* Only offer a method the club actually collects - matching the
+                  pay buttons above, so a member can never declare "Zelle" to a
+                  club that only takes Venmo (or vice versa). */}
+              {(["venmo", "zelle"] as const)
+                .filter((method) => (method === "venmo" ? group.club_venmo : group.club_zelle))
+                .map((method) => (
                 <button
                   key={method}
                   type="button"

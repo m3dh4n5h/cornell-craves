@@ -29,21 +29,45 @@
 -- invite link (or the public match-or-create path) after its order deadline
 -- passed, as long as this job hadn't swept it yet - contradicting "a group
 -- must fill by your drop's order deadline or it cancels automatically." Both
--- now also refuse (and, in accept_group_invite, eagerly cancel) a filling
--- group whose order_deadline has passed, independent of whether the cron job
--- above has run yet.
+-- now also refuse a filling group whose order_deadline has passed, so nobody
+-- can join in that gap regardless of whether the cron job above has run yet.
+-- (accept_group_invite cannot ALSO flip the row to canceled in that same
+-- call: it rejects by raising an exception, and Postgres rolls back every
+-- change a statement made before the exception that aborted it - so an
+-- update immediately followed by a raise never persists. The row is still
+-- correctly marked canceled the next time the job above runs; this guard
+-- only needs to stop the join, which raising alone already does.)
 --
 -- Run after 049_scope_custom_locations. Idempotent: safe to re-run
 -- (cron.schedule upserts by job name; the two functions are plain
 -- create-or-replace).
 
-create extension if not exists pg_cron;
+-- Guarded: pg_cron is a hosted-Postgres extension not every environment can
+-- install (e.g. it does not exist in the PGlite instance supabase/tests runs
+-- migrations against). On real Supabase this succeeds silently; anywhere else
+-- it logs a notice and the rest of this migration (the two function fixes
+-- below) still applies. If it does not take on your Supabase project, enable
+-- "pg_cron" under Database > Extensions in the dashboard, then re-run this
+-- migration.
+do $$
+begin
+  create extension if not exists pg_cron;
+exception
+  when others then
+    raise notice 'pg_cron unavailable (%), skipping automatic scheduling', sqlerrm;
+end $$;
 
-select cron.schedule(
-  'process-group-deadlines',
-  '0 * * * *',
-  $$select public.process_group_deadlines();$$
-);
+do $$
+begin
+  perform cron.schedule(
+    'process-group-deadlines',
+    '0 * * * *',
+    $cron$select public.process_group_deadlines();$cron$
+  );
+exception
+  when others then
+    raise notice 'Could not schedule process-group-deadlines (%); pg_cron may not be enabled', sqlerrm;
+end $$;
 
 -- ===================== accept_group_invite: reject/cancel past the order deadline =====================
 
@@ -70,12 +94,14 @@ begin
 
   select * into v_group from public.order_groups where id = v_invite.group_id for update;
 
-  -- Self-heal: a "filling" group whose order deadline has already passed
-  -- should have been canceled by process_group_deadlines. Catch it here too,
-  -- so a join can never land in the gap before that job next runs.
+  -- A "filling" group whose order deadline has already passed should have
+  -- been canceled by process_group_deadlines; reject the join here too, so
+  -- nobody can join in the gap before that job next runs. (This can only
+  -- reject, not also flip the row to canceled: raising an exception rolls
+  -- back any update made earlier in this same call. The job above is what
+  -- actually marks it canceled, on its next run.)
   if v_group.status = 'filling' and v_group.order_deadline <= now() then
-    update public.order_groups set status = 'canceled' where id = v_group.id;
-    raise exception 'This group''s order deadline has passed, so it was canceled';
+    raise exception 'This group''s order deadline has passed and it is no longer accepting members';
   end if;
 
   if v_group.status not in ('filling') then
