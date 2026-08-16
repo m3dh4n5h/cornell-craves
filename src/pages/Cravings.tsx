@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { BellRing, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -7,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GoogleButton } from "@/components/GoogleButton";
 import { Label } from "@/components/ui/label";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { isCornellEmail } from "@/lib/identity";
@@ -41,9 +41,27 @@ export default function Cravings() {
     };
   }, [user]);
 
-  // Craving subscriptions require a Google student account.
+  // Craving subscriptions require a Google student account. Stays on this
+  // route (rather than redirecting to /login) so the Cravings tab keeps
+  // showing active while they sign in.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login?intent=student&next=/cravings" replace />;
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/20">
+            <BellRing className="size-6 text-primary-dark" aria-hidden="true" />
+          </div>
+          <h1 className="mt-5 text-xl font-extrabold tracking-tight">Sign in to add your cravings</h1>
+          <p className="mt-2 text-sm text-ink-muted">
+            Craving alerts need a Google account so we know where to send the email the moment a
+            brand you want drops.
+          </p>
+          <div className="mt-5">
+            <GoogleButton label="Sign in to add cravings" redirectPath="/cravings" />
+          </div>
+        </div>
+      </div>
+    );
   }
   // Craving alerts are a student feature: require a Cornell account.
   if (!authLoading && user && !isCornellEmail(user.email)) {

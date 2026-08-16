@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Copy, ReceiptText, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { GoogleButton } from "@/components/GoogleButton";
 import { ReservationCard } from "@/components/ReservationCard";
 import { fetchMyOrders, orderQuantity, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
@@ -484,9 +485,27 @@ export default function MyOrders() {
     if (userId) void load();
   }, [userId, load]);
 
-  // v4: orders require a Google student account.
+  // v4: orders require a Google student account. Stays on this route (rather
+  // than redirecting to /login) so the Orders tab keeps showing active while
+  // they sign in.
   if (!authLoading && (!user || !isGoogleUser)) {
-    return <Navigate to="/login?intent=student&next=/orders" replace />;
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-16">
+        <div className="rounded-2xl border border-border bg-surface-raised p-6 text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/20">
+            <ReceiptText className="size-6 text-primary-dark" aria-hidden="true" />
+          </div>
+          <h1 className="mt-5 text-xl font-extrabold tracking-tight">Sign in to see your orders</h1>
+          <p className="mt-2 text-sm text-ink-muted">
+            Solo orders, split groups, and pickup passes all live here, tied to your Google
+            account.
+          </p>
+          <div className="mt-5">
+            <GoogleButton label="Sign in to see orders" redirectPath="/orders" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (authLoading || loading) {
