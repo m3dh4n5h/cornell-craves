@@ -59,10 +59,6 @@ const SECTIONS = [
     heading: "Governing law",
     body: "These terms are governed by the laws of the State of New York, without regard to conflict-of-law rules. Any dispute will be brought in the state or federal courts located in Tompkins County, New York.",
   },
-  {
-    heading: "Contact",
-    body: "Cornell Craves is maintained by students. For data-removal requests, security issues, or questions about these terms, reach the maintainers through the project's GitHub repository.",
-  },
 ];
 
 export default function Terms() {
