@@ -137,6 +137,11 @@
   }
 
   body {
+    /* Safety net for the whole app: a wide table, chart, or heatmap must
+       scroll inside its own box, never drag the page sideways. `clip` (not
+       `hidden`) because it does not create a scroll container, so sticky
+       headers and the bottom tab bar keep working. */
+    overflow-x: clip;
     background-color: var(--color-surface);
     color: var(--color-ink);
     font-family: var(--font-body);
@@ -275,4 +280,31 @@
   color: var(--color-surface-raised);
   font-size: 11px;
   font-weight: 700;
+}
+
+/* ---- Printing a single purchase list ---- */
+/* The club takes this to the counter, so a print has to be the item list and
+   nothing else. The body attribute is set only for the duration of one
+   window.print() call (see DropPurchaseList), and the visibility dance is what
+   keeps the marked card on the page while collapsing everything around it. */
+@media print {
+  body[data-print="purchase-list"] * {
+    visibility: hidden;
+  }
+  body[data-print="purchase-list"] [data-print-target],
+  body[data-print="purchase-list"] [data-print-target] * {
+    visibility: visible;
+  }
+  body[data-print="purchase-list"] [data-print-target] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0;
+    background: none;
+  }
+  /* Controls are noise on paper. */
+  body[data-print="purchase-list"] [data-print-hide],
+  body[data-print="purchase-list"] [data-print-hide] * {
+    display: none !important;
+  }
 }

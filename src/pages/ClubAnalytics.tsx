@@ -4,6 +4,7 @@ import { ArrowLeft, BarChart3 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  ChartEmpty,
   PeakHeatmap,
   RankBarChart,
   RevenueLineChart,
@@ -48,10 +49,14 @@ const RANGE_LABELS: Record<7 | 30 | 90 | 180, string> = {
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface-raised p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 break-words font-display text-xl font-extrabold sm:text-2xl">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
+    <div className="min-w-0 rounded-2xl border border-border bg-surface-raised p-3 sm:p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted sm:text-xs">
+        {label}
+      </p>
+      <p className="mt-1 break-words font-display text-xl font-extrabold tabular-nums sm:text-2xl">
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-xs leading-snug text-ink-muted">{sub}</p>}
     </div>
   );
 }
@@ -386,7 +391,11 @@ export default function ClubAnalytics() {
       </Link>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
-        <div className="flex gap-1 rounded-full border border-border p-1" role="radiogroup" aria-label="Time range">
+        <div
+          className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-border p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="radiogroup"
+          aria-label="Time range"
+        >
           {([7, 30, 90, 180] as const).map((option) => (
             <button
               key={option}
@@ -395,7 +404,7 @@ export default function ClubAnalytics() {
               aria-checked={range === option}
               onClick={() => setRange(option)}
               className={cn(
-                "rounded-full px-3.5 py-1 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)]",
+                "shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)]",
                 range === option ? "bg-ink text-surface-raised" : "text-ink-muted hover-fine:text-ink",
               )}
             >
@@ -491,8 +500,8 @@ export default function ClubAnalytics() {
             {computed.items.length === 0 ? (
               <p className="mt-3 text-sm text-ink-muted">No verified item sales yet in this window.</p>
             ) : (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[420px] text-sm">
+              <div className="mt-3 min-w-0 overflow-x-auto">
+                <table className="w-full min-w-[360px] text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
                       <th className="pb-2 font-semibold">Item</th>
@@ -519,16 +528,28 @@ export default function ClubAnalytics() {
           </section>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+            <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
               <h2 className="text-base font-bold">Peak order times</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                When students actually place orders. Time your next drop to land just before a hot
+                hour.
+              </p>
               <div className="mt-3">
                 <PeakHeatmap matrix={computed.heatmap} />
               </div>
             </section>
-            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+            <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
               <h2 className="text-base font-bold">Revenue by item</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Your top {Math.min(8, Math.max(computed.itemRevenueChart.length, 1))} earners, by
+                money raised rather than units.
+              </p>
               {computed.itemRevenueChart.length === 0 ? (
-                <p className="mt-3 text-sm text-ink-muted">No sales yet to chart.</p>
+                <div className="mt-3">
+                  <ChartEmpty>
+                    No verified sales yet. Verify a payment on the Orders page and it charts here.
+                  </ChartEmpty>
+                </div>
               ) : (
                 <div className="mt-3">
                   <RankBarChart data={computed.itemRevenueChart} money />
@@ -538,7 +559,7 @@ export default function ClubAnalytics() {
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+            <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
               <h2 className="text-base font-bold">Top buyers</h2>
               <p className="mt-0.5 text-xs text-ink-muted">
                 Your biggest spenders this window. Returning names are your regulars.
@@ -563,7 +584,7 @@ export default function ClubAnalytics() {
                 </ul>
               )}
             </section>
-            <section className="rounded-2xl border border-border bg-surface-raised p-4">
+            <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
               <h2 className="text-base font-bold">What buyers pick (dietary)</h2>
               <p className="mt-0.5 text-xs text-ink-muted">
                 Units actually sold, grouped by the dietary tags on those items.
@@ -591,8 +612,8 @@ export default function ClubAnalytics() {
                   ? ` — ${computed.mostReferrals.name} sent the most people (${computed.mostReferrals.people}).`
                   : "."}
               </p>
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[360px] text-sm">
+              <div className="mt-3 min-w-0 overflow-x-auto">
+                <table className="w-full min-w-[340px] text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
                       <th className="pb-2 font-semibold">Member</th>

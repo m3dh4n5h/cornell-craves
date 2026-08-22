@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTour } from "@/hooks/useTour";
 import { formatExpiry, formatPrice } from "@/lib/format";
 import {
+  ChartEmpty,
   PeakHeatmap,
   RevenueLineChart,
   type RevenuePoint,
@@ -43,10 +44,14 @@ type TabId =
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface-raised p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 break-words font-display text-xl font-extrabold sm:text-2xl">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-ink-muted">{sub}</p>}
+    <div className="min-w-0 rounded-2xl border border-border bg-surface-raised p-3 sm:p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted sm:text-xs">
+        {label}
+      </p>
+      <p className="mt-1 break-words font-display text-xl font-extrabold tabular-nums sm:text-2xl">
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-xs leading-snug text-ink-muted">{sub}</p>}
     </div>
   );
 }
@@ -656,16 +661,20 @@ export default function Admin() {
               </section>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <section className="rounded-2xl border border-border bg-surface-raised p-4">
+                <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
                   <h3 className="text-sm font-bold">Top items platform-wide</h3>
                   <p className="mt-0.5 text-xs text-ink-muted">
                     What students actually buy, last 30 days.
                   </p>
                   {insights.top_items.length === 0 ? (
-                    <p className="mt-3 text-sm text-ink-muted">No verified item sales yet.</p>
+                    <div className="mt-3">
+                      <ChartEmpty>
+                        No verified item sales yet. This fills in as clubs verify payments.
+                      </ChartEmpty>
+                    </div>
                   ) : (
                     <div className="mt-3 overflow-x-auto">
-                      <table className="w-full min-w-[300px] text-sm">
+                      <table className="w-full min-w-[280px] text-sm">
                         <thead>
                           <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
                             <th className="pb-2 font-semibold">Item</th>
@@ -688,13 +697,16 @@ export default function Admin() {
                     </div>
                   )}
                 </section>
-                <section className="rounded-2xl border border-border bg-surface-raised p-4">
+                <section className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4">
                   <h3 className="text-sm font-bold">When students order</h3>
                   <p className="mt-0.5 text-xs text-ink-muted">
                     Verified orders by day and hour, last 30 days, Ithaca time.
                   </p>
                   <div className="mt-3">
-                    <PeakHeatmap matrix={insightsView.heatmap} />
+                    <PeakHeatmap
+                      matrix={insightsView.heatmap}
+                      emptyLabel="No verified orders in the last 30 days, so there is no ordering pattern to show yet."
+                    />
                   </div>
                 </section>
               </div>
@@ -820,7 +832,7 @@ export default function Admin() {
               {brandRevenue.length === 0 ? (
                 <p className="mt-2 text-sm text-ink-muted">No verified revenue yet.</p>
               ) : (
-                <div className="mt-2 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
+                <div className="mt-2 min-w-0 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
                   <table className="w-full min-w-[360px] text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
@@ -849,7 +861,7 @@ export default function Admin() {
               {clubsByRevenue.length === 0 ? (
                 <p className="mt-2 text-sm text-ink-muted">No clubs yet.</p>
               ) : (
-                <div className="mt-2 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
+                <div className="mt-2 min-w-0 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-3">
                   <table className="w-full min-w-[360px] text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">

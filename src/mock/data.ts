@@ -585,11 +585,14 @@ export const clubGroups = [
     // Legacy group-level pick (migration 043), kept alongside the new
     // per-member field below so both old and new payload shapes render.
     recommended_by: "Aarav",
+    // email + netid come from get_club_groups only (migration 053): the club
+    // owning the drop sees its buyers' contact details, students do not see
+    // each other's.
     members: [
-      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "dev-patel-3", recommended_by: "Aarav" },
-      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "607-555-0188", recommended_by: null },
-      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false, payment_method: "venmo", payment_handle: "tombecker", recommended_by: "Priya" },
-      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null, recommended_by: null },
+      { id: "gm-a", user_id: "u-a", name: "Dev Patel", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "dev-patel-3", recommended_by: "Aarav", email: "dp447@cornell.edu", netid: "dp447" },
+      { id: "gm-b", user_id: "u-b", name: "Sofia Ramos", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "607-555-0188", recommended_by: null, email: "sr291@cornell.edu", netid: "sr291" },
+      { id: "gm-c", user_id: "u-c", name: "Tom Becker", status: "paid", scanned_at: null, is_creator: false, payment_method: "venmo", payment_handle: "tombecker", recommended_by: "Priya", email: "tb108@cornell.edu", netid: "tb108" },
+      { id: "gm-d", user_id: "u-d", name: "Lena Fischer", status: "pending_payment", scanned_at: null, is_creator: false, payment_method: null, payment_handle: null, recommended_by: null, email: "lf523@cornell.edu", netid: "" },
     ],
   },
 ];

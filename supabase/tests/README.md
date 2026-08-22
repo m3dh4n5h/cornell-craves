@@ -17,6 +17,7 @@ node supabase/tests/simulate.mjs       # expect: 28 passed, 0 failed
 node supabase/tests/split-edge.mjs     # expect: 96 passed, 0 failed
 node supabase/tests/admin-roles.mjs    # expect: 41 passed, 0 failed
 node supabase/tests/split-attack.mjs   # expect: 41 passed, 0 failed
+node supabase/tests/split-lifecycle.mjs # expect: 126 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,
@@ -60,6 +61,36 @@ bypassing 051 entirely. It also pins the things that must keep WORKING:
 the anon invite preview still resolves, an invitee can still decline their own
 invitation, a filled group can still be reactivated for payment on a closed
 drop, and inviting a couple of friends is unaffected by the fan-out cap.
+
+`split-lifecycle.mjs` walks a group all the way through every path it can take -
+happy path to pickup, never fills, fills but someone never pays, club closes
+ordering early, club extends either deadline, both flavours of reactivation -
+and asserts the notification side as well as the rows.
+
+Emails matter here because SPLIT_RULES (`src/lib/groups.ts`) is mostly a set of
+promises about *being told*: "we will email you", "you will have 24 hours",
+"you will get another email with a fresh deadline". A transition that changes
+state and tells nobody breaks the rules students agreed to even when every row
+is correct. Nothing in SQL sends mail, so the suite installs triggers at the two
+points Supabase fires the webhook from (`order_groups` UPDATE and
+`order_group_invitations` INSERT), mirrors `handleGroupStatusChange`'s branch
+table in JS, and asserts the resulting recipients, subjects and cancellation
+variant (refund-owed vs never-charged) at each step. Two guards keep that mirror
+honest: S1 greps `notify-cravings/index.ts` for every branch the mirror claims,
+and S13 fails if the run produced a status transition that neither emails nor
+appears on an explicit "silent by design" list.
+
+It also pins migration 053: the club sees its split members' email and NetID,
+while `get_my_groups` (a co-member) and the anon invite preview do not.
+
+The last section (S14) checks the rules students formally accept
+(`SPLIT_RULES` / `CLUB_SPLIT_RULES`) against the behaviour the scenarios above
+just proved — that a cancelled-then-reactivated group does not refund an
+already-paid share, that the club really does receive contact details, that
+co-members really can see each other's payment handles, and that email sending
+really is best-effort. An overstated rule is a representation the project then
+fails to honour, so editing the rules without the behaviour (or the reverse)
+fails here.
 
 Every guard is asserted against the database rather than the UI, because
 `AdminRoster.tsx` only hides buttons; `is_owner()` is what actually stops

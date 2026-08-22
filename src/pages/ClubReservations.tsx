@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowLeft, BellRing, Download, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { csvEscape } from "@/lib/csv";
 import { useAuth } from "@/hooks/useAuth";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -28,10 +29,6 @@ function formatSlotTime(slot: PickupSlot): string {
   const day = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const timeOptions: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
   return `${day}, ${start.toLocaleTimeString("en-US", timeOptions)} to ${end.toLocaleTimeString("en-US", timeOptions)}`;
-}
-
-function csvEscape(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 function exportCsv(group: ListingGroup): void {

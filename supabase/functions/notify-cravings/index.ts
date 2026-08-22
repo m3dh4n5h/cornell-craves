@@ -724,6 +724,40 @@ async function emailGroupMembers(group: GroupRecord, subject: string, bodyHtml: 
   return sent;
 }
 
+/**
+ * Same as emailGroupMembers, but the body depends on whether the club has
+ * already verified that member's share. Cancellation and reactivation both mean
+ * something different to someone who has paid than to someone who has not, and
+ * sending one body to both is how a paid member ends up chasing a refund the
+ * club was never going to owe (or wondering whether "24 hours to pay" is them).
+ */
+async function emailGroupMembersPersonalized(
+  group: GroupRecord,
+  subject: string,
+  bodyFor: (alreadyPaid: boolean) => string,
+): Promise<number> {
+  const { listing } = await orderContext(group.listing_id);
+  const { data: memberRows } = await supabase
+    .from("order_group_members")
+    .select("user_id, status")
+    .eq("group_id", group.id);
+  const paidUserIds = new Set(
+    (memberRows ?? []).filter((m) => m.status === "paid").map((m) => m.user_id as string),
+  );
+  let sent = 0;
+  for (const member of await groupMemberEmails(group.id)) {
+    const html = emailShell(subject, bodyFor(paidUserIds.has(member.user_id)), "Open my orders", `${SITE_URL}/orders`);
+    try {
+      await sendEmail(member.email, `${subject}: ${listing.title}`, html);
+      sent += 1;
+    } catch (error) {
+      console.error(`Group email failed for ${member.email}:`, error);
+    }
+    await sleep(550);
+  }
+  return sent;
+}
+
 async function handleGroupStatusChange(group: GroupRecord, previousStatus: string): Promise<number> {
   if (group.status === previousStatus) return 0;
   const share = dollars(group.item_price / Math.max(group.total_people, 1));
@@ -773,55 +807,53 @@ async function handleGroupStatusChange(group: GroupRecord, previousStatus: strin
   if (group.status === "canceled") {
     // "Nobody was charged" is only true for members who had NOT yet paid. Anyone
     // the club already verified sent real money over Venmo/Zelle, and Cornell
-    // Craves never holds it - so those members are told a refund is owed and by
-    // whom, instead of being told nothing happened.
-    const { data: memberRows } = await supabase
-      .from("order_group_members")
-      .select("user_id, status")
-      .eq("group_id", group.id);
-    const paidUserIds = new Set(
-      (memberRows ?? []).filter((m) => m.status === "paid").map((m) => m.user_id as string),
-    );
-    const { listing, club } = await orderContext(group.listing_id);
+    // Craves never holds it - so those members hear about the refund instead of
+    // being told nothing happened.
+    //
+    // But a refund is not the only way this ends. The club can reactivate a
+    // canceled group (reactivate_group), and in payment mode that RPC
+    // deliberately leaves a 'paid' member alone - they are not asked for money
+    // twice, and their existing payment simply stands. Promising a refund flatly
+    // therefore sends people chasing the club for money it may be about to turn
+    // back into their order. Both outcomes are laid out instead, with the refund
+    // as the default and a clear trigger for when to chase it.
+    const { club } = await orderContext(group.listing_id);
     const reason =
       previousStatus === "filling" ? " because it did not fill in time" : " before everyone paid";
     const clubName = club?.name ?? "The club";
 
-    let sent = 0;
-    for (const member of await groupMemberEmails(group.id)) {
-      const alreadyPaid = paidUserIds.has(member.user_id);
-      const body = alreadyPaid
+    return emailGroupMembersPersonalized(group, "Your split order was canceled", (alreadyPaid) =>
+      alreadyPaid
         ? paragraph(
-            `The split for ${escapeHtml(group.item_name)} was canceled${reason}. You had already paid your ${share} share, so ${escapeHtml(clubName)} owes you a refund.`,
+            `The split for ${escapeHtml(group.item_name)} was canceled${reason}. You had already paid your ${share} share, so nothing more is owed by you.`,
           ) +
           paragraph(
-            `Cornell Craves never holds the money - your payment went straight to ${escapeHtml(clubName)}, so contact them to get it back. No pass was issued and there is nothing to pick up.`,
+            `One of two things happens next. ${escapeHtml(clubName)} may reopen the group - your share is already in, so you would not be asked to pay again, and we will email you the new deadline. Otherwise the cancellation stands and ${escapeHtml(clubName)} refunds you.`,
+          ) +
+          paragraph(
+            `Cornell Craves never holds the money - your payment went straight to ${escapeHtml(clubName)} - so if you have not heard either way in a couple of days, contact them directly. No pass has been issued, so there is nothing to pick up for now.`,
           )
         : paragraph(
             `The split for ${escapeHtml(group.item_name)} was canceled${reason}, and you were not charged.`,
-          ) + paragraph("If the club reactivates it, you will get another email with a fresh deadline.");
-      try {
-        await sendEmail(member.email, `Your split order was canceled: ${listing.title}`, emailShell(
-          "Your split order was canceled",
-          body,
-          "Open my orders",
-          `${SITE_URL}/orders`,
-        ));
-        sent += 1;
-      } catch (error) {
-        console.error(`Group cancel email failed for ${member.email}:`, error);
-      }
-      await sleep(550);
-    }
-    return sent;
+          ) + paragraph("If the club reactivates it, you will get another email with a fresh deadline."),
+    );
   }
   if (group.status === "reactivated") {
-    return emailGroupMembers(
-      group,
-      "Your split order is back on",
-      paragraph(
-        `The club reactivated the split for ${escapeHtml(group.item_name)}. Anyone who has not paid their ${share} share has 24 hours (by ${formatEastern(group.deadline)}).`,
-      ),
+    // The other half of the cancellation wording. A member who already paid was
+    // just told a refund might be coming; this is the email that resolves it, so
+    // it has to say plainly that their share still counts and no refund is due -
+    // not leave them to work out whether "24 hours to pay" means them.
+    return emailGroupMembersPersonalized(group, "Your split order is back on", (alreadyPaid) =>
+      alreadyPaid
+        ? paragraph(
+            `The club reactivated the split for ${escapeHtml(group.item_name)}. Your ${share} share is already paid and still counts, so there is nothing for you to do and no refund coming.`,
+          ) +
+          paragraph(
+            `Anyone still owing has until ${formatEastern(group.deadline)} (24 hours). Once the club has verified everyone, your pickup pass is emailed to you.`,
+          )
+        : paragraph(
+            `The club reactivated the split for ${escapeHtml(group.item_name)}. If you have not paid your ${share} share yet, you have 24 hours (by ${formatEastern(group.deadline)}).`,
+          ),
     );
   }
   return 0;

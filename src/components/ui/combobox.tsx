@@ -1,6 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { AnchoredPanel } from "@/components/ui/anchored-menu";
 import { cn } from "@/lib/utils";
 
 export interface ComboboxProps {
@@ -36,6 +36,11 @@ function MatchedText({ option, query }: { option: string; query: string }) {
  * its options. Fully keyboard operable (arrows, Enter, Escape) and announced
  * via the ARIA combobox pattern. Free text is intentional: flows like brand
  * entry accept names that are not in the list yet.
+ *
+ * The menu lives in a portal (see AnchoredPanel) rather than in the field's own
+ * subtree. Inline it was clipped and painted under the sticky navbar whenever
+ * the field sat inside a card that established a stacking context, and a list
+ * opening near the bottom of a phone screen ran off it.
  */
 export function Combobox({
   id,
@@ -48,10 +53,10 @@ export function Combobox({
   autoComplete = "off",
   "aria-label": ariaLabel,
 }: ComboboxProps) {
-  const reduceMotion = useReducedMotion();
   const listboxId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
 
@@ -61,16 +66,6 @@ export function Combobox({
     [options, query],
   );
 
-  // Close when a tap/click lands outside the whole widget.
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
-
   // Keep the active option in view while arrowing through a long list.
   useEffect(() => {
     if (!open || active < 0) return;
@@ -79,10 +74,14 @@ export function Combobox({
       ?.scrollIntoView({ block: "nearest" });
   }, [open, active]);
 
-  const select = (option: string) => {
-    onChange(option);
+  const close = useCallback(() => {
     setOpen(false);
     setActive(-1);
+  }, []);
+
+  const select = (option: string) => {
+    onChange(option);
+    close();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -106,11 +105,10 @@ export function Combobox({
     }
     if (event.key === "Escape" && open) {
       event.stopPropagation();
-      setOpen(false);
-      setActive(-1);
+      close();
       return;
     }
-    if (event.key === "Tab") setOpen(false);
+    if (event.key === "Tab") close();
   };
 
   const selectedIndex = filtered.findIndex(
@@ -118,8 +116,9 @@ export function Combobox({
   );
 
   return (
-    <div ref={rootRef} className="relative w-full">
+    <div ref={anchorRef} className="relative w-full">
       <input
+        ref={inputRef}
         id={id}
         role="combobox"
         aria-expanded={open}
@@ -151,7 +150,11 @@ export function Combobox({
         onPointerDown={(event) => {
           // Toggle without stealing focus from the input.
           event.preventDefault();
-          setOpen((previous) => !previous);
+          if (open) close();
+          else {
+            setOpen(true);
+            inputRef.current?.focus();
+          }
         }}
         className="absolute right-0 top-0 flex h-11 w-10 items-center justify-center text-ink-muted"
       >
@@ -161,72 +164,59 @@ export function Combobox({
         />
       </button>
 
-      {/* Transform-only entrance (never opacity): if animation frames stall on a
-          low-power device, the menu is still fully opaque and readable. Closing
-          is instant, like native menus. */}
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={reduceMotion ? false : { scale: 0.98, y: -4 }}
-            animate={{ scale: 1, y: 0 }}
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute left-0 right-0 top-full z-modal mt-1.5 origin-top overflow-hidden rounded-2xl border border-border bg-surface-raised shadow-[0_12px_40px_oklch(18%_0.02_260/0.18)]"
-          >
-            <ul
-              ref={listRef}
-              id={listboxId}
-              role="listbox"
-              aria-label="Suggestions"
-              className="max-h-64 overflow-y-auto overscroll-contain py-1.5 [touch-action:pan-y]"
-            >
-              {filtered.map((option, index) => (
-                <li
-                  key={option}
-                  id={`${listboxId}-${index}`}
-                  data-index={index}
-                  role="option"
-                  aria-selected={index === selectedIndex}
-                  onPointerDown={(event) => {
-                    // Mouse only: select before the input can blur, so focus
-                    // never jumps. On touch, pointerdown is also the start of a
-                    // scroll gesture - selecting here made the list impossible
-                    // to scroll on phones (any touch picked an option and
-                    // closed the menu). Touch selection happens in onClick,
-                    // which the browser only fires for a real tap, never a
-                    // scroll.
-                    if (event.pointerType === "mouse") {
-                      event.preventDefault();
-                      select(option);
-                    }
-                  }}
-                  onClick={() => select(option)}
-                  onPointerMove={(event) => {
-                    // Hover highlight is a mouse affordance; on touch it would
-                    // repaint rows mid-scroll.
-                    if (event.pointerType === "mouse") setActive(index);
-                  }}
-                  className={cn(
-                    "flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3.5 py-2 text-sm",
-                    index === active && "bg-ink/[0.05]",
-                  )}
-                >
-                  <span className="min-w-0 truncate">
-                    <MatchedText option={option} query={value} />
-                  </span>
-                  {index === selectedIndex && (
-                    <Check className="size-4 shrink-0 text-primary-dark" aria-hidden="true" />
-                  )}
-                </li>
-              ))}
-              {filtered.length === 0 && (
-                <li className="px-3.5 py-3 text-sm text-ink-muted" role="presentation">
-                  {emptyHint ?? "No matches."}
-                </li>
+      <AnchoredPanel anchorRef={anchorRef} open={open} onDismiss={close} matchWidth>
+        <ul
+          ref={listRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Suggestions"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1.5 [touch-action:pan-y]"
+        >
+          {filtered.map((option, index) => (
+            <li
+              key={option}
+              id={`${listboxId}-${index}`}
+              data-index={index}
+              role="option"
+              aria-selected={index === selectedIndex}
+              onPointerDown={(event) => {
+                // Mouse only: select before the input can blur, so focus never
+                // jumps. On touch, pointerdown is also the start of a scroll
+                // gesture - selecting here made the list impossible to scroll
+                // on phones (any touch picked an option and closed the menu).
+                // Touch selection happens in onClick, which the browser only
+                // fires for a real tap, never a scroll.
+                if (event.pointerType === "mouse") {
+                  event.preventDefault();
+                  select(option);
+                }
+              }}
+              onClick={() => select(option)}
+              onPointerMove={(event) => {
+                // Hover highlight is a mouse affordance; on touch it would
+                // repaint rows mid-scroll.
+                if (event.pointerType === "mouse") setActive(index);
+              }}
+              className={cn(
+                "flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3.5 py-2 text-sm",
+                index === active && "bg-ink/[0.05]",
               )}
-            </ul>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            >
+              <span className="min-w-0 truncate">
+                <MatchedText option={option} query={value} />
+              </span>
+              {index === selectedIndex && (
+                <Check className="size-4 shrink-0 text-primary-dark" aria-hidden="true" />
+              )}
+            </li>
+          ))}
+          {filtered.length === 0 && (
+            <li className="px-3.5 py-3 text-sm text-ink-muted" role="presentation">
+              {emptyHint ?? "No matches."}
+            </li>
+          )}
+        </ul>
+      </AnchoredPanel>
     </div>
   );
 }

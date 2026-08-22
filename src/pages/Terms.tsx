@@ -20,8 +20,20 @@ const SECTIONS = [
     body: "Allergen and dietary labels are entered by clubs and are provided for convenience only. They are not verified by Cornell Craves and may be incomplete or wrong. If you have a food allergy or dietary restriction, confirm directly with the club before eating anything. Cornell Craves is not responsible for any illness, allergic reaction, or harm arising from food obtained through a listing.",
   },
   {
+    heading: "Split orders",
+    body: "A split order is several students buying one item together and each paying a share directly to the club. Cornell Craves only coordinates who is in the group and when the deadlines fall; it is not a party to the split, holds no money, and does not guarantee that a group fills, that any member pays, or that the club fulfills it. If a group is canceled after a member has already paid, that member is owed either a refund from the club or a place in the reopened group if the club reactivates it — in which case their payment still counts. Either way the money went directly to the club, and Cornell Craves cannot issue, guarantee, or compel a refund. The full split rules are shown and must be accepted each time you start or join a split.",
+  },
+  {
+    heading: "Notifications and deadlines",
+    body: "Emails and other notifications are sent on a best-effort basis as a courtesy. They can be delayed, filtered as spam, or fail to send, and we do not guarantee delivery. Deadlines, automatic cancellations, and payment windows are applied by a scheduled job and take effect whether or not a message reaches you, and may land shortly after the time displayed. Your Orders page and a club's dashboard are the authoritative record of status. Cornell Craves is not liable for a missed deadline, a canceled group, or any other loss arising from a notification that was delayed, undelivered, or never sent.",
+  },
+  {
+    heading: "What clubs can see about you",
+    body: "A club can see the details it needs to fulfil what you ordered from it: your name, Cornell email, NetID, the payment handle you enter, and your order or share. In a split order, the other members of your group can additionally see your first name, last initial, and payment handle. Clubs agree to use this only to run and fulfil the order and not to market to you or share it outside their organization, but they are independent student organizations and Cornell Craves does not control what they do with it. Do not enter details you are not willing to share with the club and your group.",
+  },
+  {
     heading: "QR pickup passes",
-    body: "A QR pass confirms that a club marked your payment as received. It is not proof of payment on its own and does not guarantee a specific item. Keep your pass private. Cornell Craves is not liable for a pass that is shared, screenshotted, or intercepted.",
+    body: "A QR pass confirms that a club marked your payment as received. It is not proof of payment on its own and does not guarantee a specific item. Passes are personal and single-use: once one has been scanned it cannot be used again, and whoever presents it first collects the order. Keep your pass private. Cornell Craves is not liable for a pass that is shared, screenshotted, forwarded, or intercepted, or for an order collected by someone you gave it to.",
   },
   {
     heading: "Accounts and accuracy",
@@ -66,7 +78,7 @@ export default function Terms() {
     <div className="mx-auto w-full max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-extrabold tracking-tight">Terms and disclaimer</h1>
       <p className="mt-2 text-sm text-ink-muted">
-        Last updated June 2026. Using Cornell Craves means you agree to the following.
+        Last updated August 2026. Using Cornell Craves means you agree to the following.
       </p>
 
       <div className="mt-8 space-y-6">

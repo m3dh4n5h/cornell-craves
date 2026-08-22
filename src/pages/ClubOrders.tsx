@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowLeft, BadgeCheck, ChevronDown, Clock, Download, Inbox, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { orderItemsSummary, ORDER_STATUS_META } from "@/lib/orders";
+import { orderItemsSummary, summarizeDropDemand, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, MEMBER_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
+import { buildOrdersCsv } from "@/lib/orderCsv";
 import { formatPrice } from "@/lib/format";
+import { DropPurchaseList } from "@/components/DropPurchaseList";
 import { QRScanner } from "@/components/QRScanner";
 import { DeadlineTimer } from "@/components/DeadlineTimer";
 import { EmptyState } from "@/components/EmptyState";
+import { AnchoredPanel } from "@/components/ui/anchored-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -54,16 +57,6 @@ async function readFnError(error: unknown): Promise<string> {
     }
   }
   return (error as { message?: string } | null)?.message ?? "Edge function error";
-}
-
-function csvEscape(value: string): string {
-  // Defuse spreadsheet formula injection before quoting. Excel/Sheets execute a
-  // cell whose text begins with = + - @ or a tab/CR, and buyer-controlled fields
-  // (name, email, NetID, payment handle, item names) land in this sheet. A buyer
-  // named `=HYPERLINK("http://evil","click")` would otherwise run on open, so
-  // prefix a single quote to any value that starts with a formula trigger.
-  const defused = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-  return /[",\n]/.test(defused) ? `"${defused.replaceAll('"', '""')}"` : defused;
 }
 
 function fmtDateTime(iso: string | null | undefined): string {
@@ -226,10 +219,12 @@ function SplitGroupCard({
           disappear into a "canceled" badge. */}
       {group.status === "canceled" && refundsOwed.length > 0 && (
         <p className="mt-2 rounded-lg bg-urgent/10 px-3 py-2 text-xs text-ink">
-          <span className="font-semibold">Refund owed.</span> This group canceled after you verified{" "}
-          {refundsOwed.map((member) => member.name).join(", ")}. They each paid{" "}
-          {formatPrice(Number(group.share_amount))} straight to your Venmo or Zelle, so refund them
-          directly — Cornell Craves never held it.
+          <span className="font-semibold">Money to settle.</span> This group canceled after you
+          verified {refundsOwed.map((member) => member.name).join(", ")}. They each paid{" "}
+          {formatPrice(Number(group.share_amount))} straight to your Venmo or Zelle — Cornell Craves
+          never held it. Either refund them directly, or reactivate below: their share stays
+          verified and they are not asked to pay again. They have been emailed both possibilities,
+          so pick one before they chase you.
         </p>
       )}
 
@@ -241,10 +236,23 @@ function SplitGroupCard({
               <span className="min-w-0">
                 <span className="block text-sm font-semibold">
                   {member.name}
+                  {member.netid && (
+                    <span className="ml-1.5 font-mono text-xs font-normal text-ink-muted">
+                      {member.netid}
+                    </span>
+                  )}
                   {member.is_creator && (
                     <span className="ml-1 text-xs font-normal text-ink-muted">started it</span>
                   )}
                 </span>
+                {/* Reachable like a solo buyer (migration 053): chasing an
+                    unpaid share or settling a refund needs an address, not just
+                    a Venmo handle. */}
+                {member.email && (
+                  <span className="block truncate font-mono text-xs text-ink-muted">
+                    {member.email}
+                  </span>
+                )}
                 {/* The handle the student says they are paying from, so the club
                     can match the incoming Venmo/Zelle payment to this member. */}
                 <span className="block text-xs text-ink-muted">
@@ -342,6 +350,7 @@ export default function ClubOrders() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   // Export menu: the club picks one fundraiser or all of them.
   const [exportOpen, setExportOpen] = useState(false);
+  const exportAnchorRef = useRef<HTMLDivElement>(null);
   // Listing sections are collapsible (#15); a listing id in this set is closed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -397,9 +406,25 @@ export default function ClubOrders() {
     if (userId && clubId === userId) void refetch();
   }, [userId, clubId, refetch]);
 
+  /** Buyers on a listing: solo orders plus every split share (what the CSV rows
+   *  count). A drop can be split-only, so this cannot key off `orders` alone. */
+  const buyerCount = useCallback(
+    (listingId: string | null) =>
+      orders.filter((order) => !listingId || order.listing_id === listingId).length +
+      groups
+        .filter((group) => !listingId || group.listing_id === listingId)
+        .reduce((sum, group) => sum + group.members.length, 0),
+    [orders, groups],
+  );
+
   const listingsWithOrders = useMemo(
-    () => listings.filter((listing) => orders.some((order) => order.listing_id === listing.id)),
-    [listings, orders],
+    () =>
+      listings.filter(
+        (listing) =>
+          orders.some((order) => order.listing_id === listing.id) ||
+          groups.some((group) => group.listing_id === listing.id),
+      ),
+    [listings, orders, groups],
   );
 
   const filtered = orders.filter((order) => {
@@ -441,6 +466,13 @@ export default function ClubOrders() {
       listing,
       sectionOrders: filtered.filter((order) => order.listing_id === listing.id),
       sectionGroups: visibleGroups.filter((group) => group.listing_id === listing.id),
+      // The purchase list answers "what do we buy for this drop", so it is
+      // built from every order on the listing and deliberately ignores the
+      // status/listing filters above - a filtered shopping list is a wrong one.
+      demand: summarizeDropDemand(
+        orders.filter((order) => order.listing_id === listing.id),
+        groups.filter((group) => group.listing_id === listing.id),
+      ),
     }))
     .filter((section) => section.sectionOrders.length > 0 || section.sectionGroups.length > 0);
 
@@ -572,61 +604,17 @@ export default function ClubOrders() {
   };
 
   // Export is scoped by the club's explicit choice: one fundraiser or all of
-  // them. It always includes every status so the sheet reconciles cleanly.
+  // them. It always includes every status, and every split share, so the sheet
+  // reconciles cleanly. See lib/orderCsv for the row model.
   const exportCsv = (scopeListingId: string | null) => {
-    const scoped = scopeListingId
-      ? orders.filter((order) => order.listing_id === scopeListingId)
-      : orders;
     const listingTitle = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
-    // One column per distinct item name; each row holds that person's quantity (#17).
-    const itemNames = [
-      ...new Set(scoped.flatMap((order) => (order.items_json ?? []).map((line) => line.name))),
-    ].sort((a, b) => a.localeCompare(b));
-    const baseHeaders = [
-      "name",
-      "email",
-      "netid",
-      "listing",
-      "amount_paid",
-      "payment_method",
-      "payment_details",
-      "status",
-      "picked_up_by",
-      "ordered_at",
-      "picked_up_at",
-    ];
-    const header = [...baseHeaders, ...itemNames].map(csvEscape).join(",");
-    const rows = scoped.map((order) => {
-      const qtyByName = new Map<string, number>();
-      for (const line of order.items_json ?? []) {
-        qtyByName.set(line.name, (qtyByName.get(line.name) ?? 0) + Number(line.qty));
-      }
-      const base = [
-        csvEscape(order.orderer_name),
-        csvEscape(order.orderer_email),
-        csvEscape(order.orderer_netid ?? ""),
-        csvEscape(listingTitle(order.listing_id)),
-        formatPrice(Number(order.total)),
-        order.payment_method,
-        csvEscape(
-          [
-            order.payment_details_json.venmo ? `venmo @${order.payment_details_json.venmo}` : "",
-            order.payment_details_json.zelle ? `zelle ${order.payment_details_json.zelle}` : "",
-          ]
-            .filter(Boolean)
-            .join("; "),
-        ),
-        order.status,
-        csvEscape(
-          order.picked_up_by_name ? `${order.picked_up_by_name} (${order.picked_up_by_email})` : "",
-        ),
-        order.created_at,
-        order.picked_up_at ?? "",
-      ];
-      const itemCols = itemNames.map((name) => String(qtyByName.get(name) ?? 0));
-      return [...base, ...itemCols].join(",");
+    const { csv, peopleCount, splitShareCount } = buildOrdersCsv({
+      listings,
+      orders,
+      groups,
+      scopeListingId,
     });
-    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -640,10 +628,14 @@ export default function ClubOrders() {
     anchor.click();
     URL.revokeObjectURL(url);
     setExportOpen(false);
+    const splits =
+      splitShareCount > 0
+        ? `, including ${splitShareCount} split ${splitShareCount === 1 ? "share" : "shares"}`
+        : "";
     toast.success(
       scopeListingId
-        ? `Exported ${scoped.length} ${scoped.length === 1 ? "order" : "orders"} for "${listingTitle(scopeListingId)}".`
-        : `Exported all ${scoped.length} ${scoped.length === 1 ? "order" : "orders"}.`,
+        ? `Exported ${peopleCount} ${peopleCount === 1 ? "buyer" : "buyers"}${splits} for "${listingTitle(scopeListingId)}".`
+        : `Exported ${peopleCount} ${peopleCount === 1 ? "buyer" : "buyers"}${splits} across every fundraiser.`,
     );
   };
 
@@ -660,12 +652,12 @@ export default function ClubOrders() {
             Verify payments to send QR passes, scan them at pickup.
           </p>
         </div>
-        <div className="relative">
+        <div ref={exportAnchorRef} className="relative">
           <Button
             variant="secondary"
             size="sm"
             onClick={() => setExportOpen((open) => !open)}
-            disabled={orders.length === 0}
+            disabled={orders.length === 0 && groups.length === 0}
             aria-expanded={exportOpen}
             aria-haspopup="menu"
           >
@@ -676,51 +668,50 @@ export default function ClubOrders() {
               aria-hidden="true"
             />
           </Button>
-          {exportOpen && (
-            <>
+          <AnchoredPanel
+            anchorRef={exportAnchorRef}
+            open={exportOpen}
+            onDismiss={() => setExportOpen(false)}
+            role="menu"
+            aria-label="Choose what to export"
+            width={280}
+            align="end"
+          >
+            <p className="shrink-0 px-3.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              Export orders for
+            </p>
+            <p className="shrink-0 px-3.5 pb-1.5 text-[11px] leading-snug text-ink-muted">
+              One row per buyer, split shares included.
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-1.5">
               <button
                 type="button"
-                aria-label="Close export menu"
-                className="fixed inset-0 z-raised cursor-default"
-                onClick={() => setExportOpen(false)}
-              />
-              <div
-                role="menu"
-                aria-label="Choose what to export"
-                className="absolute left-0 z-modal mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface-raised py-1.5 shadow-[0_12px_40px_oklch(18%_0.02_260/0.2)] sm:left-auto sm:right-0"
+                role="menuitem"
+                onClick={() => exportCsv(null)}
+                className="flex min-h-11 w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-semibold hover-fine:bg-ink/[0.04]"
               >
-                <p className="px-3.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                  Export orders for
-                </p>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => exportCsv(null)}
-                  className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-semibold hover-fine:bg-ink/[0.04]"
-                >
-                  All fundraisers
-                  <span className="shrink-0 font-mono text-xs font-normal text-ink-muted">
-                    {orders.length}
-                  </span>
-                </button>
-                {listingsWithOrders.map((listing) => {
-                  const count = orders.filter((order) => order.listing_id === listing.id).length;
-                  return (
-                    <button
-                      key={listing.id}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => exportCsv(listing.id)}
-                      className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover-fine:bg-ink/[0.04]"
-                    >
-                      <span className="min-w-0 truncate">{listing.title}</span>
-                      <span className="shrink-0 font-mono text-xs text-ink-muted">{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                All fundraisers
+                <span className="shrink-0 font-mono text-xs font-normal text-ink-muted">
+                  {buyerCount(null)}
+                </span>
+              </button>
+              {listingsWithOrders.map((listing) => {
+                const count = buyerCount(listing.id);
+                return (
+                  <button
+                    key={listing.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => exportCsv(listing.id)}
+                    className="flex min-h-11 w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover-fine:bg-ink/[0.04]"
+                  >
+                    <span className="min-w-0 truncate">{listing.title}</span>
+                    <span className="shrink-0 font-mono text-xs text-ink-muted">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </AnchoredPanel>
         </div>
       </div>
 
@@ -830,7 +821,7 @@ export default function ClubOrders() {
         </div>
       ) : (
         <div className="mt-6 space-y-4">
-          {sections.map(({ listing, sectionOrders, sectionGroups }) => {
+          {sections.map(({ listing, sectionOrders, sectionGroups, demand }) => {
             const open = !collapsed.has(listing.id);
             const owed = owedCount(sectionOrders, sectionGroups);
             const orderCount = sectionOrders.length;
@@ -851,6 +842,11 @@ export default function ClubOrders() {
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
+                    {demand.totalUnits > 0 && (
+                      <Badge variant="neutral" className="hidden sm:inline-flex">
+                        {demand.totalUnits} to buy
+                      </Badge>
+                    )}
                     {owed > 0 && <Badge variant="urgent">{owed} owe payment</Badge>}
                     <ChevronDown
                       className={cn(
@@ -864,6 +860,9 @@ export default function ClubOrders() {
 
                 {open && (
                   <div className="space-y-3 px-3 pb-3">
+                    {demand.totalUnits > 0 && (
+                      <DropPurchaseList title={listing.title} demand={demand} />
+                    )}
                     {/* Bulk split controls: act on every split group on this drop
                         at once (the club's "for all" option). */}
                     {(() => {

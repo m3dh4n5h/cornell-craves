@@ -504,6 +504,14 @@ export type GroupMemberView = {
   payment_handle?: string | null;
   /** This member's own recommender pick (migration 048); absent on older payloads. */
   recommended_by?: string | null;
+  /**
+   * Contact details, added by get_club_groups only (migration 053). The club
+   * owning the drop needs to reach its buyers exactly like it can for a solo
+   * order; get_my_groups, get_my_group_invites and the anon invite preview
+   * deliberately never carry these, so they are absent on those payloads.
+   */
+  email?: string;
+  netid?: string;
 };
 
 /** Shape produced by the group_payload SQL helper (all group RPCs). */
