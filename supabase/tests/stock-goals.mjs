@@ -45,8 +45,8 @@ await db.query(`update public.clubs set venmo = 'stock-club', groups_enabled = t
 
 async function seedListing(title, items, extra = {}) {
   const { rows } = await db.query(
-    `insert into public.listings (club_id, brand, title, items, contact_email, active, expires_at, cause_name, cause_percent, goal_amount)
-     values ($1, 'Crumbl', $2, $3::jsonb, 'x@cornell.edu', $4, $5, $6, $7, $8) returning id`,
+    `insert into public.listings (club_id, brand, title, items, contact_email, active, expires_at, cause_name, cause_percent)
+     values ($1, 'Crumbl', $2, $3::jsonb, 'x@cornell.edu', $4, $5, $6, $7) returning id`,
     [
       club.id,
       title,
@@ -55,9 +55,15 @@ async function seedListing(title, items, extra = {}) {
       future,
       extra.cause ?? null,
       extra.cause ? 100 : null,
-      extra.goal ?? null,
     ],
   );
+  // 059: goals live in the private listing_goals table.
+  if (extra.goal != null) {
+    await db.query(
+      `insert into public.listing_goals (listing_id, goal_amount, goal_public) values ($1, $2, $3)`,
+      [rows[0].id, extra.goal, extra.goalPublic ?? true],
+    );
+  }
   return rows[0].id;
 }
 
@@ -287,7 +293,7 @@ check(
 // ===================== Fundraiser goals =====================
 console.log("\nFundraiser goals");
 res = await attempt(() => seedListing("Goal without cause", [{ name: "Box", price: 10 }], { goal: 500 }));
-check("a goal does not need a cause (058)", res.ok, res.ok ? "" : res.message ?? "rejected");
+check("a goal does not need a cause (059)", res.ok, res.ok ? "" : res.message ?? "rejected");
 res = await attempt(() =>
   seedListing("Zero goal", [{ name: "Box", price: 10 }], { goal: 0, cause: "Trip" }),
 );
@@ -305,7 +311,7 @@ let f = await fundraising(null, goalListing);
 check("anon sees goal and zero raised", Number(f?.goal) === 100 && Number(f?.raised) === 0, JSON.stringify(f));
 check(
   "listing_fundraising returns aggregates only",
-  Object.keys(f ?? {}).sort().join(",") === "goal,listing_id,raised",
+  Object.keys(f ?? {}).sort().join(",") === "goal,is_public,listing_id,raised",
 );
 
 const paid1 = await order(alice, goalListing, [{ name: "Box", qty: 3 }]); // $30
@@ -350,5 +356,55 @@ const hiddenGoal = await seedListing("Hidden goal", [{ name: "Box", price: 10 }]
 });
 f = await fundraising(null, hiddenGoal);
 check("anon gets nothing for an inactive drop's goal", f === null);
+
+// 059: a private goal is the club's alone.
+const privateGoal = await seedListing("Private goal", [{ name: "Box", price: 10 }], {
+  goal: 300,
+  goalPublic: false,
+});
+f = await fundraising(null, privateGoal);
+check("anon gets nothing for a private goal", f === null);
+f = await fundraising(alice, privateGoal);
+check("another student gets nothing for a private goal", f === null);
+f = await fundraising(club, privateGoal);
+check("the club still sees its private goal", Number(f?.goal) === 300, JSON.stringify(f));
+check("the club sees it is private", f?.is_public === false);
+
+const goalRows = (user) =>
+  asUser(db, user, async () => {
+    const { rows } = await db.query(`select * from public.listing_goals where listing_id = $1`, [privateGoal]);
+    return rows;
+  });
+res = await attempt(() => goalRows(null));
+check("anon cannot read listing_goals", !res.ok || res.value.length === 0, JSON.stringify(res.value ?? res.message));
+res = await attempt(() => goalRows(alice));
+check("a student cannot read another club's goal row", res.ok && res.value.length === 0);
+res = await attempt(() => goalRows(club));
+check("the club reads its own goal row", res.ok && res.value.length === 1);
+
+res = await attempt(() =>
+  asUser(db, alice, () =>
+    db.query(`update public.listing_goals set goal_public = true where listing_id = $1`, [privateGoal]),
+  ),
+);
+const stillPrivate = await fundraising(null, privateGoal);
+check("a student cannot flip a club's goal public", stillPrivate === null);
+res = await attempt(() =>
+  asUser(db, alice, () =>
+    db.query(`insert into public.listing_goals (listing_id, goal_amount) values ($1, 1)`, [noGoal]),
+  ),
+);
+check("a student cannot add a goal to a club's drop", !res.ok);
+
+await asUser(db, club, () =>
+  db.query(`update public.listing_goals set goal_public = true where listing_id = $1`, [privateGoal]),
+);
+f = await fundraising(null, privateGoal);
+check("the club can make its goal public", Number(f?.goal) === 300 && f?.is_public === true, JSON.stringify(f));
+
+const cols = await db.query(
+  `select column_name from information_schema.columns where table_schema = 'public' and table_name = 'listings' and column_name like 'goal%'`,
+);
+check("listings no longer exposes any goal column", cols.rows.length === 0, JSON.stringify(cols.rows));
 
 summary();

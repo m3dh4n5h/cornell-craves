@@ -42,6 +42,7 @@ const TABLES: Record<string, Row[]> = {
   recurring_templates: fx.templates as unknown as Row[],
   brand_requests: fx.brandRequests as unknown as Row[],
   club_brand_approvals: [],
+  listing_goals: [],
   review_helpful_votes: [],
   qa_helpful_votes: [],
   reservations: [],
@@ -234,7 +235,14 @@ const RPC: Record<string, (args?: Row) => unknown> = {
       const listing = fx.listings.find((l) => l.id === id);
       return listing?.goal_amount == null
         ? []
-        : [{ listing_id: id, goal: listing.goal_amount, raised: fx.goalRaised[id] ?? 0 }];
+        : [
+            {
+              listing_id: id,
+              goal: listing.goal_amount,
+              raised: fx.goalRaised[id] ?? 0,
+              is_public: listing.goal_public ?? false,
+            },
+          ];
     }),
   set_order_recommender: () => null,
   set_group_recommender: () => null,

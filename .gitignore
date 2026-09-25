@@ -180,3 +180,4 @@ ds-bundle/
 .design-sync/node_modules
 .design-sync/compiled.css
 .design-sync/types/
+/_to_delete/

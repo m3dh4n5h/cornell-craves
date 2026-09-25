@@ -408,7 +408,7 @@ export default function ListingDetail() {
             </p>
           )}
 
-          {listing.goal_amount != null && (
+          {listing.goal_amount != null && listing.goal_public && (
             <GoalProgress
               goal={Number(listing.goal_amount)}
               raised={listing.goal_raised ?? 0}

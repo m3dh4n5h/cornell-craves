@@ -95,7 +95,7 @@ export function ListingCard({ listing }: ListingCardProps) {
           </p>
         )}
 
-        {listing.goal_amount != null && (
+        {listing.goal_amount != null && listing.goal_public && (
           <GoalProgress
             compact
             goal={Number(listing.goal_amount)}

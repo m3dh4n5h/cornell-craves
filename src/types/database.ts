@@ -222,8 +222,7 @@ export type Listing = {
   recommender_enabled: boolean;
   cause_name: string | null;
   cause_percent: number | null;
-  /** Club fundraising target in dollars, independent of the cause (055, 058). */
-  goal_amount: number | null;
+  /** Club fundraising target in dollars, independent of the cause (055, 059). */
   draft: boolean;
   auto_post_on_brand: boolean;
   /** The exact brand name the admin approved for this listing, or null. */
@@ -258,8 +257,31 @@ export type ListingWithClub = Listing & {
    * listing_stock (migration 054). Uncapped items are absent.
    */
   stock_left?: Record<string, number>;
+  /**
+   * Club fundraising goal, merged in from listing_fundraising (055, 059). Goals
+   * live in the private listing_goals table, so these are only present for the
+   * owning club, or for students when the club made the goal public.
+   */
+  goal_amount?: number | null;
+  /** True when the club lets students see the goal bar (059). */
+  goal_public?: boolean;
   /** Confirmed dollars raised, from listing_fundraising (migration 055). */
   goal_raised?: number;
+};
+
+/** A club's private fundraising goal for one drop (migration 059). */
+export type ListingGoal = {
+  listing_id: string;
+  goal_amount: number;
+  goal_public: boolean;
+  updated_at: string;
+};
+
+type ListingGoalInsert = {
+  listing_id: string;
+  goal_amount: number;
+  goal_public?: boolean;
+  updated_at?: string;
 };
 
 /** One row of listing_stock(): counts only, never order rows (migration 054). */
@@ -275,6 +297,8 @@ export type ListingFundraisingRow = {
   listing_id: string;
   goal: number;
   raised: number;
+  /** Whether students may see it. Non-owners only ever get public rows (059). */
+  is_public: boolean;
 };
 
 export type Craving = {
@@ -660,7 +684,6 @@ type ListingInsert = {
   recommender_enabled?: boolean;
   cause_name?: string | null;
   cause_percent?: number | null;
-  goal_amount?: number | null;
   draft?: boolean;
   auto_post_on_brand?: boolean;
   approved_brand?: string | null;
@@ -944,6 +967,20 @@ export type Database = {
             foreignKeyName: "pickup_slots_listing_id_fkey";
             columns: ["listing_id"];
             isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      listing_goals: {
+        Row: ListingGoal;
+        Insert: ListingGoalInsert;
+        Update: Partial<ListingGoalInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "listing_goals_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: true;
             referencedRelation: "listings";
             referencedColumns: ["id"];
           },

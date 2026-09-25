@@ -18,10 +18,10 @@ node supabase/tests/split-edge.mjs     # expect: 96 passed, 0 failed
 node supabase/tests/admin-roles.mjs    # expect: 41 passed, 0 failed
 node supabase/tests/split-attack.mjs   # expect: 41 passed, 0 failed
 node supabase/tests/split-lifecycle.mjs # expect: 126 passed, 0 failed
-node supabase/tests/stock-goals.mjs    # expect: 46 passed, 0 failed
+node supabase/tests/stock-goals.mjs    # expect: 57 passed, 0 failed
 node supabase/tests/pickup-calendar.mjs # expect: 13 passed, 0 failed
 node supabase/tests/insights.mjs        # expect: 12 passed, 0 failed
-node supabase/tests/contract.mjs        # expect: 559 passed, 0 failed
+node supabase/tests/contract.mjs        # expect: 577 passed, 0 failed
 node supabase/tests/payload-shape.mjs   # expect: 70 passed, 0 failed
 ```
 

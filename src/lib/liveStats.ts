@@ -19,7 +19,10 @@ export async function withLiveStats(listings: ListingWithClub[]): Promise<Listin
   const stockIds = listings
     .filter((listing) => (listing.items ?? []).some((item) => item.stock != null))
     .map((listing) => listing.id);
-  const goalIds = listings.filter((listing) => listing.goal_amount != null).map((listing) => listing.id);
+  // Goals are private (059): the listing row no longer says whether a drop has
+  // one, so ask for every drop. The RPC only answers for goals this viewer may
+  // see (the owning club, or students when the club made it public).
+  const goalIds = listings.map((listing) => listing.id);
   if (stockIds.length === 0 && goalIds.length === 0) return listings;
 
   const [stockResults, goalResults] = await Promise.all([
@@ -40,23 +43,31 @@ export async function withLiveStats(listings: ListingWithClub[]): Promise<Listin
     }
   }
 
-  const raised = new Map<string, number>();
+  const goals = new Map<string, { goal: number; raised: number; isPublic: boolean }>();
   for (const { data, error } of goalResults) {
     if (error) {
       console.warn("fundraising totals unavailable:", error.message);
       continue;
     }
-    for (const row of data ?? []) raised.set(row.listing_id, Number(row.raised));
+    for (const row of data ?? []) {
+      goals.set(row.listing_id, {
+        goal: Number(row.goal),
+        raised: Number(row.raised),
+        isPublic: Boolean(row.is_public),
+      });
+    }
   }
 
   return listings.map((listing) => {
     const left = stockLeft.get(listing.id);
-    const total = raised.get(listing.id);
-    if (!left && total === undefined) return listing;
+    const goal = goals.get(listing.id);
+    if (!left && !goal) return listing;
     return {
       ...listing,
       ...(left ? { stock_left: left } : {}),
-      ...(total !== undefined ? { goal_raised: total } : {}),
+      ...(goal
+        ? { goal_amount: goal.goal, goal_public: goal.isPublic, goal_raised: goal.raised }
+        : {}),
     };
   });
 }

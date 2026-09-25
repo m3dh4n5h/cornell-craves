@@ -303,7 +303,7 @@ function causeError(name: string, percent: string): string | undefined {
     : "Enter a donation percentage from 1 to 100.";
 }
 
-/** An optional club fundraising goal: a dollar amount up to $1,000,000 (055, 058). */
+/** An optional club fundraising goal: a dollar amount up to $1,000,000 (055, 059). */
 function goalError(goal: string): string | undefined {
   if (!goal.trim()) return undefined;
   const value = Number.parseFloat(goal);
@@ -482,10 +482,12 @@ function ListingForm({
   const [causePercent, setCausePercent] = useState(
     source?.cause_percent != null ? String(source.cause_percent) : "",
   );
-  // Optional club fundraising goal, independent of any cause (migration 058).
+  // Optional club fundraising goal, independent of any cause (058), private to the club by default (059).
   const [goalAmount, setGoalAmount] = useState(
     source?.goal_amount != null ? String(source.goal_amount) : "",
   );
+  // Private by default: only the club sees the bar unless it opts in (059).
+  const [goalPublic, setGoalPublic] = useState(source?.goal_public ?? false);
   const [expiresAt, setExpiresAt] = useState(
     initial
       ? toDatetimeLocal(new Date(initial.expires_at))
@@ -697,6 +699,30 @@ function ListingForm({
     return null;
   };
 
+  /**
+   * Goals live in the private listing_goals table (059), written only by the
+   * owning club. Set a goal: upsert. Clear it on an existing drop: delete.
+   */
+  const syncGoal = async (listingId: string): Promise<string | null> => {
+    if (goalAmount.trim()) {
+      const { error } = await supabase.from("listing_goals").upsert(
+        {
+          listing_id: listingId,
+          goal_amount: Math.round(Number.parseFloat(goalAmount) * 100) / 100,
+          goal_public: goalPublic,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "listing_id" },
+      );
+      return error?.message ?? null;
+    }
+    if (initial?.goal_amount != null) {
+      const { error } = await supabase.from("listing_goals").delete().eq("listing_id", listingId);
+      return error?.message ?? null;
+    }
+    return null;
+  };
+
   const handleSubmit = async (mode: PublishMode) => {
     setShowErrors(true);
     if (hasErrors) return;
@@ -715,10 +741,6 @@ function ListingForm({
       recommender_enabled: recommenderEnabled,
       cause_name: causeName.trim() || null,
       cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
-      goal_amount:
-        goalAmount.trim()
-          ? Math.round(Number.parseFloat(goalAmount) * 100) / 100
-          : null,
       // Unapproved brands can't go live: keep as a draft or auto-post on approval (#7).
       active: mode === "publish",
       draft: mode === "draft",
@@ -760,11 +782,14 @@ function ListingForm({
 
     const slotError = listingId ? await syncSlots(listingId) : null;
     const spotError = listingId && !slotError ? await syncSpots(listingId) : null;
+    const goalSyncError = listingId && !slotError && !spotError ? await syncGoal(listingId) : null;
     setSubmitting(false);
     if (slotError) {
       toast.error(`Listing saved, but slots failed: ${slotError}`);
     } else if (spotError) {
       toast.error(`Listing saved, but pickup spots failed: ${spotError}`);
+    } else if (goalSyncError) {
+      toast.error(`Listing saved, but the goal failed: ${goalSyncError}`);
     } else if (mode === "draft") {
       toast.success(
         isPostable ? "Saved as a draft." : "Saved as a draft. Publish it once the brand is approved.",
@@ -1072,9 +1097,24 @@ function ListingForm({
           <span className="text-sm text-ink-muted">for your club</span>
         </div>
         <p className="mt-1.5 text-xs text-ink-muted">
-          How much your club wants to raise from this drop. Shows a progress bar of confirmed
-          payments.
+          How much your club wants to raise from this drop. You always see a progress bar of
+          confirmed payments on your dashboard.
         </p>
+        <label className="mt-2.5 flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={goalPublic}
+            onChange={(e) => setGoalPublic(e.target.checked)}
+            disabled={!goalAmount.trim()}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark) disabled:opacity-50"
+          />
+          <span>
+            <span className="block text-sm font-semibold">Show the progress bar to students</span>
+            <span className="block text-xs text-ink-muted">
+              Off: only your club sees it. On: students see how much you have raised toward the goal.
+            </span>
+          </span>
+        </label>
         <FieldError message={showErrors ? errors.goal : undefined} />
       </div>
 
