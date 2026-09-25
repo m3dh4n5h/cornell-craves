@@ -23,6 +23,7 @@ import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
 import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT, spotHoursText } from "@/lib/pickup";
 import { formatPrice } from "@/lib/format";
+import { itemRemaining, listingSoldOut } from "@/lib/stock";
 import { VenmoButton } from "@/components/VenmoButton";
 import { AllergenIcon } from "@/components/AllergenIcon";
 import { DietaryTag } from "@/components/DietaryTag";
@@ -31,6 +32,8 @@ import { ReviewsSection } from "@/components/ReviewsSection";
 import { QAThread } from "@/components/QAThread";
 import { PickupCalendar } from "@/components/PickupCalendar";
 import { EmptyState } from "@/components/EmptyState";
+import { GoalProgress } from "@/components/GoalProgress";
+import { StockBadge } from "@/components/StockBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -61,6 +64,7 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
   const timeLeft = useCountdown(listing.expires_at);
   const note = `Cornell Craves: ${listing.title}`;
   const zelle = listing.clubs?.zelle_phone;
+  const soldOut = listingSoldOut(listing);
 
   const copyZelle = async () => {
     if (!zelle) return;
@@ -83,11 +87,17 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
         <Clock className="size-4" aria-hidden="true" />
         {timeLeft.expired ? "This drop has ended" : timeLeft.label}
       </p>
-      <Link to={`/listing/${listing.id}/order-form`} className="mt-4 block">
-        <Button className="w-full" size="lg" disabled={timeLeft.expired || !listing.active}>
-          Order items
+      {soldOut ? (
+        <Button className="mt-4 w-full" size="lg" disabled>
+          Sold out
         </Button>
-      </Link>
+      ) : (
+        <Link to={`/listing/${listing.id}/order-form`} className="mt-4 block">
+          <Button className="w-full" size="lg" disabled={timeLeft.expired || !listing.active}>
+            Order items
+          </Button>
+        </Link>
+      )}
       {listing.payment_updated_at && (
         <div className="mt-4 rounded-xl border border-accent/40 bg-accent/10 p-3 text-sm text-ink">
           <span className="font-semibold">Payment handle recently updated.</span> This club
@@ -129,6 +139,7 @@ function PaymentCard({ listing }: { listing: ListingWithClub }) {
 function ItemsTab({ listing }: { listing: ListingWithClub }) {
   const navigate = useNavigate();
   const items = listing.items ?? [];
+  const soldOut = listingSoldOut(listing);
 
   if (items.length === 0) {
     return (
@@ -160,12 +171,17 @@ function ItemsTab({ listing }: { listing: ListingWithClub }) {
               </h3>
               <span className="shrink-0 font-mono text-lg font-bold">{formatPrice(item.price)}</span>
             </div>
+            <StockBadge
+              remaining={itemRemaining(listing, item)}
+              stock={item.stock}
+              className="mt-2"
+            />
           </div>
         ))}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={() => navigate(`/listing/${listing.id}/order-form`)}>
-          Order these items
+        <Button disabled={soldOut} onClick={() => navigate(`/listing/${listing.id}/order-form`)}>
+          {soldOut ? "Sold out" : "Order these items"}
         </Button>
         <Button
           variant="secondary"
@@ -322,6 +338,9 @@ export default function ListingDetail() {
               This listing is no longer active
             </Badge>
           )}
+          {listing.active && listingSoldOut(listing) && (
+            <StockBadge remaining={0} stock={0} className="mt-4" />
+          )}
 
           {pickupSpots.length > 0 ? (
             <div className="mt-4 flex flex-col gap-2">
@@ -387,6 +406,15 @@ export default function ListingDetail() {
                 {listing.cause_percent}% of earnings go to {listing.cause_name}.
               </span>
             </p>
+          )}
+
+          {listing.cause_name && listing.goal_amount != null && (
+            <GoalProgress
+              goal={Number(listing.goal_amount)}
+              raised={listing.goal_raised ?? 0}
+              label={listing.cause_name}
+              className="mt-3 rounded-xl border border-border bg-surface-raised p-3"
+            />
           )}
 
           {listing.pickup_info && (

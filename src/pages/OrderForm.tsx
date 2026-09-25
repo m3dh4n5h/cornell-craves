@@ -11,6 +11,7 @@ import { getSavedEmail, setSavedEmail } from "@/lib/local";
 import { isCornellEmail } from "@/lib/identity";
 import { formatPrice } from "@/lib/format";
 import { isValidNetid } from "@/lib/orders";
+import { itemRemaining, listingSoldOut } from "@/lib/stock";
 import { AllergenIcon } from "@/components/AllergenIcon";
 import { VenmoButton } from "@/components/VenmoButton";
 import { SplitOrderToggle } from "@/components/SplitOrderToggle";
@@ -19,6 +20,7 @@ import { SplitRulesDialog } from "@/components/SplitRulesDialog";
 import { GroupInviteLink } from "@/components/GroupInviteLink";
 import { GoogleButton } from "@/components/GoogleButton";
 import { EmptyState } from "@/components/EmptyState";
+import { StockBadge } from "@/components/StockBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,7 +49,7 @@ export default function OrderForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
-  const { listing, loading, error, refetch } = useListing(id);
+  const { listing, loading, error, refetch, refreshLive } = useListing(id);
   const { user, isGoogleUser, signOut } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
 
@@ -104,6 +106,31 @@ export default function OrderForm() {
   }, [reviewOpen]);
 
   const items = listing?.items ?? [];
+  const soldOut = listing ? listingSoldOut(listing) : false;
+
+  /** Most of one item this buyer can add: the per-order cap (50) or what is left. */
+  const maxQtyFor = (itemName: string) => {
+    const item = items.find((entry) => entry.name === itemName);
+    const remaining = listing && item ? itemRemaining(listing, item) : null;
+    return Math.min(50, remaining ?? 50);
+  };
+
+  // Live counts can drop while the form is open; never hold more than is left.
+  useEffect(() => {
+    if (!listing) return;
+    setQuantities((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const item of listing.items ?? []) {
+        const remaining = itemRemaining(listing, item);
+        if (remaining != null && (next[item.name] ?? 0) > remaining) {
+          next[item.name] = remaining;
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [listing]);
 
   const lines = useMemo(
     () =>
@@ -145,7 +172,10 @@ export default function OrderForm() {
   const hasErrors = Object.values(errors).some(Boolean);
 
   const setQty = (itemName: string, next: number) => {
-    setQuantities((previous) => ({ ...previous, [itemName]: Math.max(0, Math.min(50, next)) }));
+    setQuantities((previous) => ({
+      ...previous,
+      [itemName]: Math.max(0, Math.min(maxQtyFor(itemName), next)),
+    }));
   };
 
   const openReview = () => {
@@ -176,6 +206,7 @@ export default function OrderForm() {
     if (rpcError) {
       setSubmitting(false);
       toast.error(rpcError.message);
+      void refreshLive();
       return;
     }
     // Best-effort: attach the recommender to the just-created order (#2).
@@ -328,6 +359,7 @@ export default function OrderForm() {
     setRulesAction(null);
     if (rpcError) {
       toast.error(rpcError.message);
+      void refreshLive();
       return;
     }
     const result = data as unknown as { group_id: string; open_token: string | null };
@@ -358,6 +390,7 @@ export default function OrderForm() {
     setRulesAction(null);
     if (rpcError) {
       toast.error(rpcError.message);
+      void refreshLive();
       return;
     }
     const result = data as unknown as { group_id: string; open_token?: string | null; joined: boolean };
@@ -587,6 +620,8 @@ export default function OrderForm() {
           <ul className="mt-2 divide-y divide-border/60">
             {items.map((item) => {
               const qty = quantities[item.name] ?? 0;
+              const remaining = itemRemaining(listing, item);
+              const maxQty = Math.min(50, remaining ?? 50);
               return (
                 <li key={item.name} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3">
                   <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
@@ -601,7 +636,10 @@ export default function OrderForm() {
                         </span>
                       )}
                     </p>
-                    <p className="font-mono text-xs text-ink-muted">{formatPrice(item.price)}</p>
+                    <p className="flex flex-wrap items-center gap-2 font-mono text-xs text-ink-muted">
+                      {formatPrice(item.price)}
+                      <StockBadge remaining={remaining} stock={item.stock} className="font-sans" />
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 max-sm:ml-auto">
                     <Button
@@ -623,6 +661,7 @@ export default function OrderForm() {
                       variant="secondary"
                       size="sm"
                       aria-label={`More ${item.name}`}
+                      disabled={qty >= maxQty}
                       onClick={() => setQty(item.name, qty + 1)}
                       className="size-11 px-0"
                     >
@@ -678,13 +717,14 @@ export default function OrderForm() {
                     const selected = splitItemName === item.name;
                     const qty = Math.max(1, item.quantity ?? 1);
                     const splittable = validSplitSizes(qty).length > 0;
+                    const itemSoldOut = itemRemaining(listing, item) === 0;
                     return (
                       <button
                         key={item.name}
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        disabled={!splittable}
+                        disabled={!splittable || itemSoldOut}
                         onClick={() => selectSplitItem(item.name, qty)}
                         className={cn(
                           "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45",
@@ -705,7 +745,7 @@ export default function OrderForm() {
                           )}
                         </span>
                         <span className="shrink-0 font-mono text-sm font-bold">
-                          {splittable ? formatPrice(item.price) : "Can't split"}
+                          {itemSoldOut ? "Sold out" : splittable ? formatPrice(item.price) : "Can't split"}
                         </span>
                       </button>
                     );
@@ -962,8 +1002,8 @@ export default function OrderForm() {
                 {formatPrice(total)}
               </p>
             </div>
-            <Button type="submit" size="lg">
-              Review order
+            <Button type="submit" size="lg" disabled={soldOut}>
+              {soldOut ? "Sold out" : "Review order"}
             </Button>
           </div>
         </div>

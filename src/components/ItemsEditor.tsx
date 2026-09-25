@@ -12,6 +12,8 @@ export interface ItemDraft {
   price: string;
   /** Units in a box (e.g. a dozen = 12). Enables even group splits. */
   quantity: string;
+  /** Optional cap on how many the drop sells. Blank means no limit. */
+  stock: string;
   dietary_tags: DietaryTagId[];
 }
 
@@ -40,7 +42,7 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
   };
 
   const addItem = () => {
-    onChange([...items, { name: "", price: "", quantity: "1", dietary_tags: [] }]);
+    onChange([...items, { name: "", price: "", quantity: "1", stock: "", dietary_tags: [] }]);
   };
 
   return (
@@ -99,6 +101,25 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
                   /box
                 </span>
               </div>
+              <div className="relative w-28 shrink-0 max-sm:flex-1">
+                <Input
+                  value={item.stock}
+                  onChange={(e) => updateItem(index, { stock: e.target.value.replace(/[^\d]/g, "") })}
+                  placeholder="No limit"
+                  inputMode="numeric"
+                  aria-label={`Item ${index + 1} stock limit, optional`}
+                  title="Optional. The most you will sell of this item. Leave blank for no limit."
+                  className={cn("font-mono", item.stock && "pr-12")}
+                />
+                {item.stock && (
+                  <span
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-muted"
+                    aria-hidden="true"
+                  >
+                    max
+                  </span>
+                )}
+              </div>
               <Button
                 type="button"
                 variant="ghost"
@@ -148,6 +169,9 @@ export function ItemsEditor({ items, onChange }: ItemsEditorProps) {
   );
 }
 
+/** Matches the listings_items_stock_valid check (migration 054). */
+const MAX_STOCK = 100000;
+
 export function parseItemDrafts(drafts: ItemDraft[]): ListingItem[] {
   return drafts
     .filter((draft) => draft.name.trim().length > 0)
@@ -158,17 +182,22 @@ export function parseItemDrafts(drafts: ItemDraft[]): ListingItem[] {
       };
       const quantity = Math.max(1, Number.parseInt(draft.quantity, 10) || 1);
       if (quantity > 1) item.quantity = quantity;
+      const stock = Number.parseInt(draft.stock, 10);
+      if (Number.isFinite(stock) && stock >= 0) item.stock = Math.min(stock, MAX_STOCK);
       if (draft.dietary_tags.length > 0) item.dietary_tags = draft.dietary_tags;
       return item;
     });
 }
 
 export function toItemDrafts(items: ListingItem[] | null): ItemDraft[] {
-  if (!items || items.length === 0) return [{ name: "", price: "", quantity: "1", dietary_tags: [] }];
+  if (!items || items.length === 0) {
+    return [{ name: "", price: "", quantity: "1", stock: "", dietary_tags: [] }];
+  }
   return items.map((item) => ({
     name: item.name,
     price: String(item.price),
     quantity: String(item.quantity ?? 1),
+    stock: item.stock != null ? String(item.stock) : "",
     dietary_tags: item.dietary_tags ?? [],
   }));
 }

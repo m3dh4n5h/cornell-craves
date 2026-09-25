@@ -5,7 +5,7 @@
 import * as fx from "./data";
 
 type Row = Record<string, unknown>;
-type Result = { data: unknown; error: null };
+type Result = { data: unknown; error: { message: string } | null };
 
 const ROLE_KEY = "craves-mock-role";
 
@@ -173,7 +173,25 @@ class MockQuery implements PromiseLike<Result> {
   }
 }
 
-/** RPC fixtures. Anything unlisted resolves { data: null }. */
+/** Units left for one item in mock mode, or null when it has no cap. */
+function mockRemaining(listingId: string, itemName: string): number | null {
+  const item = fx.listings.find((l) => l.id === listingId)?.items.find((i) => i.name === itemName);
+  if (item?.stock == null) return null;
+  return fx.stockRemaining[listingId]?.[itemName] ?? item.stock;
+}
+
+/** Mirrors the 054 trigger messages so the order form's toast can be seen. */
+function assertMockStock(listingId: string, lines: { name: string; qty: number }[]) {
+  for (const line of lines) {
+    const left = mockRemaining(listingId, line.name);
+    if (left == null || line.qty <= left) continue;
+    throw new Error(
+      left === 0 ? `${line.name} is sold out` : `Only ${left} left of ${line.name}. Lower the quantity and try again.`,
+    );
+  }
+}
+
+/** RPC fixtures. Anything unlisted resolves { data: null }; a throw becomes { error }. */
 const RPC: Record<string, (args?: Row) => unknown> = {
   get_my_orders: () => fx.myOrders,
   get_my_groups: () => fx.myGroups,
@@ -199,7 +217,25 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   admin_global_brands: () => fx.adminGlobalBrands,
   admin_club_brand_approvals: () => fx.adminClubBrandApprovals,
   admin_insights: () => fx.adminInsights,
-  create_order: () => "o-new-demo",
+  create_order: (args) => {
+    assertMockStock(args?.p_listing_id as string, (args?.p_items as { name: string; qty: number }[]) ?? []);
+    return "o-new-demo";
+  },
+  listing_stock: (args) =>
+    ((args?.p_listing_ids as string[]) ?? []).flatMap((id) =>
+      (fx.listings.find((l) => l.id === id)?.items ?? []).flatMap((item) =>
+        item.stock == null
+          ? []
+          : [{ listing_id: id, item_name: item.name, stock: item.stock, remaining: mockRemaining(id, item.name) }],
+      ),
+    ),
+  listing_fundraising: (args) =>
+    ((args?.p_listing_ids as string[]) ?? []).flatMap((id) => {
+      const listing = fx.listings.find((l) => l.id === id);
+      return listing?.goal_amount == null
+        ? []
+        : [{ listing_id: id, goal: listing.goal_amount, raised: fx.goalRaised[id] ?? 0 }];
+    }),
   set_order_recommender: () => null,
   set_group_recommender: () => null,
   set_group_member_recommender: () => null,
@@ -211,7 +247,10 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   accept_group_invite: () => "g-1",
   decline_group_invite: () => null,
   invite_to_group: () => null,
-  create_order_group: () => ({ group_id: "g-new", open_token: "demo-open-token" }),
+  create_order_group: (args) => {
+    assertMockStock(args?.p_listing_id as string, [{ name: args?.p_item_name as string, qty: 1 }]);
+    return { group_id: "g-new", open_token: "demo-open-token" };
+  },
   join_or_create_public_group: () => ({ group_id: "g-1", joined: true }),
   get_group_by_token: () => fx.myGroups[0],
   request_brand: () => "br-new",
@@ -229,7 +268,11 @@ const RPC: Record<string, (args?: Row) => unknown> = {
 
 function rpcResult(name: string, args?: Row): Promise<Result> {
   const handler = RPC[name];
-  return Promise.resolve({ data: handler ? handler(args) : null, error: null });
+  try {
+    return Promise.resolve({ data: handler ? handler(args) : null, error: null });
+  } catch (err) {
+    return Promise.resolve({ data: null, error: { message: (err as Error).message } });
+  }
 }
 
 type AuthCallback = (event: string, session: ReturnType<typeof currentSession>) => void;

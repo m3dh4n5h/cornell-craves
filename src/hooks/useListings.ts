@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { withLiveStats } from "@/lib/liveStats";
 import type { ListingWithClub } from "@/types/database";
 
 interface UseListingsOptions {
@@ -38,7 +39,7 @@ export function useListings({ clubId, enabled = true }: UseListingsOptions = {})
       setError(queryError.message);
       setListings([]);
     } else {
-      setListings(data ?? []);
+      setListings(await withLiveStats(data ?? []));
     }
     setLoading(false);
   }, [clubId, enabled]);
@@ -74,7 +75,7 @@ export function useListing(id: string | undefined) {
       setError(queryError.message);
       setListing(null);
     } else {
-      setListing(data);
+      setListing(data ? (await withLiveStats([data]))[0] : null);
     }
     setLoading(false);
   }, [id]);
@@ -83,5 +84,12 @@ export function useListing(id: string | undefined) {
     void refetch();
   }, [refetch]);
 
-  return { listing, loading, error, refetch };
+  /** Re-read live stock and goal counts without the loading flash of refetch. */
+  const refreshLive = useCallback(async () => {
+    if (!listing) return;
+    const [fresh] = await withLiveStats([listing]);
+    setListing(fresh);
+  }, [listing]);
+
+  return { listing, loading, error, refetch, refreshLive };
 }

@@ -31,6 +31,7 @@ import {
   type ItemDraft,
 } from "@/components/ItemsEditor";
 import { EmptyState } from "@/components/EmptyState";
+import { GoalProgress } from "@/components/GoalProgress";
 import { LocationCombobox } from "@/components/LocationCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
 import { geocodeAddress } from "@/lib/geocode";
 import { formatExpiry, formatPrice } from "@/lib/format";
+import { itemRemaining } from "@/lib/stock";
 import type {
   BrandRequest,
   CampusLocation,
@@ -239,6 +241,15 @@ function causeError(name: string, percent: string): string | undefined {
     : "Enter a donation percentage from 1 to 100.";
 }
 
+/** An optional fundraiser goal: a dollar amount up to $1,000,000 (migration 055). */
+function goalError(name: string, goal: string): string | undefined {
+  if (!name.trim() || !goal.trim()) return undefined;
+  const value = Number.parseFloat(goal);
+  return Number.isFinite(value) && value > 0 && value <= 1_000_000
+    ? undefined
+    : "Enter a goal in dollars, like 800.";
+}
+
 function SpotsEditor({
   spots,
   locations,
@@ -409,6 +420,10 @@ function ListingForm({
   const [causePercent, setCausePercent] = useState(
     source?.cause_percent != null ? String(source.cause_percent) : "",
   );
+  // Optional fundraiser goal, labelled by the cause name (migration 055).
+  const [goalAmount, setGoalAmount] = useState(
+    source?.goal_amount != null ? String(source.goal_amount) : "",
+  );
   const [expiresAt, setExpiresAt] = useState(
     initial
       ? toDatetimeLocal(new Date(initial.expires_at))
@@ -547,6 +562,7 @@ function ListingForm({
       : "Every pickup slot needs a start, an end after it, and at least as many spots as already reserved.",
     spots: spotsError(spots),
     cause: causeError(causeName, causePercent),
+    goal: goalError(causeName, goalAmount),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -621,6 +637,10 @@ function ListingForm({
       recommender_enabled: recommenderEnabled,
       cause_name: causeName.trim() || null,
       cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
+      goal_amount:
+        causeName.trim() && goalAmount.trim()
+          ? Math.round(Number.parseFloat(goalAmount) * 100) / 100
+          : null,
       // Unapproved brands can't go live: keep as a draft or auto-post on approval (#7).
       active: mode === "publish",
       draft: mode === "draft",
@@ -901,10 +921,32 @@ function ListingForm({
             <span className="text-sm text-ink-muted">% of earnings</span>
           </div>
         </div>
-        <p className="mt-1.5 text-xs text-ink-muted">
-          Drops with a cause are pinned to the top of the feed.
-        </p>
         <FieldError message={showErrors ? errors.cause : undefined} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="relative w-36">
+            <span
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-ink-muted"
+              aria-hidden="true"
+            >
+              $
+            </span>
+            <Input
+              value={goalAmount}
+              onChange={(e) => setGoalAmount(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+              placeholder="800"
+              aria-label="Fundraising goal in dollars, optional"
+              className="pl-7 font-mono"
+              disabled={!causeName.trim()}
+            />
+          </div>
+          <span className="text-sm text-ink-muted">goal (optional)</span>
+        </div>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Drops with a cause are pinned to the top of the feed. Add a goal to show a progress bar
+          of confirmed payments.
+        </p>
+        <FieldError message={showErrors ? errors.goal : undefined} />
       </div>
 
       <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
@@ -987,6 +1029,12 @@ function ListingRow({
   onDelete: () => void;
 }) {
   const timeLeft = useCountdown(listing.expires_at);
+  const cappedItems = (listing.items ?? []).flatMap((item) => {
+    const remaining = itemRemaining(listing, item);
+    return remaining == null || item.stock == null
+      ? []
+      : [{ name: item.name, remaining, stock: item.stock }];
+  });
   const held = listing.draft || listing.auto_post_on_brand;
   const live = listing.active && !timeLeft.expired && !held;
   const status = listing.draft
@@ -1013,6 +1061,24 @@ function ListingRow({
           {listing.review_count > 0 &&
             `, rated ${Number(listing.avg_rating).toFixed(1)} (${listing.review_count})`}
         </p>
+        {cappedItems.length > 0 && (
+          <p className="mt-1 truncate text-xs text-ink-muted">
+            {cappedItems
+              .map(({ name, remaining, stock }) =>
+                remaining === 0 ? `${name} sold out` : `${name} ${remaining} of ${stock} left`,
+              )
+              .join(", ")}
+          </p>
+        )}
+        {listing.goal_amount != null && (
+          <GoalProgress
+            compact
+            goal={Number(listing.goal_amount)}
+            raised={listing.goal_raised ?? 0}
+            label={listing.cause_name}
+            className="mt-2 w-64 max-w-full"
+          />
+        )}
       </div>
       {/* min-w-0 (not shrink-0) so the group can compress and wrap its buttons
           on narrow screens instead of overflowing the card; on >=sm it sits

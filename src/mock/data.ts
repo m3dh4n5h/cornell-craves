@@ -141,8 +141,8 @@ export const listings: ListingWithClub[] = [
     description:
       "Fresh from the Syracuse store that morning. Every box helps send our team to nationals, and a fifth of it goes to a local food pantry.",
     items: [
-      { name: "Glazed dozen", price: 14.99, quantity: 12, dietary_tags: ["vegetarian"] },
-      { name: "Chocolate iced dozen", price: 16.99, quantity: 12, dietary_tags: ["vegetarian"] },
+      { name: "Glazed dozen", price: 14.99, quantity: 12, dietary_tags: ["vegetarian"], stock: 40 },
+      { name: "Chocolate iced dozen", price: 16.99, quantity: 12, dietary_tags: ["vegetarian"], stock: 30 },
       { name: "Single glazed", price: 1.75 },
     ],
     pickup_info: "Duffield atrium, 4 to 7 pm",
@@ -151,6 +151,7 @@ export const listings: ListingWithClub[] = [
     recommender_enabled: true,
     cause_name: "Campus Food Pantry",
     cause_percent: 20,
+    goal_amount: 800,
     draft: false,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -170,7 +171,7 @@ export const listings: ListingWithClub[] = [
     title: "Crumbl party box drop",
     description: "This week's rotating flavors. Split a party box with friends, everyone gets their own pass.",
     items: [
-      { name: "Party box", price: 34.99, quantity: 12, dietary_tags: ["vegetarian"] },
+      { name: "Party box", price: 34.99, quantity: 12, dietary_tags: ["vegetarian"], stock: 10 },
       { name: "4-pack", price: 15.99, quantity: 4, dietary_tags: ["vegetarian"] },
     ],
     pickup_info: "Willard Straight lobby, 5 to 8 pm",
@@ -179,6 +180,7 @@ export const listings: ListingWithClub[] = [
     recommender_enabled: false,
     cause_name: null,
     cause_percent: null,
+    goal_amount: null,
     draft: false,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -207,6 +209,7 @@ export const listings: ListingWithClub[] = [
     recommender_enabled: false,
     cause_name: "Clean-Water Build Trip",
     cause_percent: 100,
+    goal_amount: 500,
     draft: false,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -225,13 +228,14 @@ export const listings: ListingWithClub[] = [
     brand: "Texas Roadhouse",
     title: "Rolls & cinnamon butter, Willard Straight",
     description: "The rolls. You know the ones. Dozen per box with a tub of cinnamon butter.",
-    items: [{ name: "Dozen rolls + butter", price: 12.0, quantity: 12, dietary_tags: ["vegetarian"] }],
+    items: [{ name: "Dozen rolls + butter", price: 12.0, quantity: 12, dietary_tags: ["vegetarian"], stock: 15 }],
     pickup_info: "Willard Straight lobby, 6 to 8 pm",
     pickup_location_id: "loc-wsh",
     contact_email: "silverblade.club@cornell.edu",
     recommender_enabled: false,
     cause_name: null,
     cause_percent: null,
+    goal_amount: null,
     draft: false,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -251,8 +255,8 @@ export const listings: ListingWithClub[] = [
     title: "Late-night cookie drop at RPCC",
     description: "Warm six-packs delivered to North. Ends tonight.",
     items: [
-      { name: "Classic 6-pack", price: 11.5, quantity: 6, dietary_tags: ["vegetarian"] },
-      { name: "Deluxe 4-pack", price: 13.25, quantity: 4, dietary_tags: ["vegetarian"] },
+      { name: "Classic 6-pack", price: 11.5, quantity: 6, dietary_tags: ["vegetarian"], stock: 50 },
+      { name: "Deluxe 4-pack", price: 13.25, quantity: 4, dietary_tags: ["vegetarian"], stock: 20 },
     ],
     pickup_info: "RPCC lobby, 9 to 11 pm",
     pickup_location_id: "loc-rpcc",
@@ -260,6 +264,7 @@ export const listings: ListingWithClub[] = [
     recommender_enabled: true,
     cause_name: null,
     cause_percent: null,
+    goal_amount: null,
     draft: false,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -286,6 +291,7 @@ export const listings: ListingWithClub[] = [
     recommender_enabled: false,
     cause_name: null,
     cause_percent: null,
+    goal_amount: null,
     draft: true,
     auto_post_on_brand: false,
     approved_brand: null,
@@ -299,6 +305,24 @@ export const listings: ListingWithClub[] = [
     listing_pickup_spots: [],
   },
 ];
+
+/**
+ * What listing_stock (054) and listing_fundraising (055) report in mock mode.
+ * Krispy Kreme is low on glazed, Crumbl's party box and Insomnia's deluxe pack
+ * are sold out, the rolls drop is fully sold out, Krispy Kreme is partway to
+ * its goal and the EWB drop beat its goal.
+ */
+export const stockRemaining: Record<string, Record<string, number>> = {
+  "l-kk": { "Glazed dozen": 6, "Chocolate iced dozen": 12 },
+  "l-crumbl": { "Party box": 0 },
+  "l-trh": { "Dozen rolls + butter": 0 },
+  "l-insomnia": { "Classic 6-pack": 38, "Deluxe 4-pack": 0 },
+};
+
+export const goalRaised: Record<string, number> = {
+  "l-kk": 420,
+  "l-cfa": 612.5,
+};
 
 export const reviews: Review[] = [
   {
@@ -408,6 +432,7 @@ export const pickupSlots: PickupSlot[] = [
     created_at: daysAgo(1),
   },
 ];
+
 
 export const profileRow = {
   id: "u-student",

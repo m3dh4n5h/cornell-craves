@@ -49,5 +49,9 @@ These functions run as owner and bypass RLS, so their internal checks are the au
 | `current_user_emails` | authenticated | returns only the caller's own emails |
 | `track_event` / `vote_review_helpful` / `vote_qa_helpful` | anon + authenticated | low-sensitivity counters; no data returned |
 | `get_group_by_token` | anon + authenticated | invite page needs pre-auth read; returns no emails |
+| `listing_stock` (054) | anon + authenticated | counts only (item, cap, remaining); listings visible under the listings SELECT policy |
+| `listing_fundraising` (055) | anon + authenticated | aggregates only (goal, raised); listings visible under the listings SELECT policy |
+
+Stock caps are enforced by the `orders_enforce_stock` and `order_groups_enforce_stock` triggers (054), which lock the listing row before counting. Their helpers (`listing_item_held`, `item_stock_cap`) are not executable by `anon` or `authenticated`.
 
 Privileged actions in the `notify-cravings` edge function (`verify_payment`, `scan_qr`, `verify_group_payment`, `reactivate_group`, `send_reminders`) validate the caller's JWT and require `listing.club_id = auth.uid()`.

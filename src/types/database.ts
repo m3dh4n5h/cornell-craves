@@ -17,6 +17,11 @@ export type ListingItem = {
   /** Units in a box (a dozen = 12). Defaults to 1; used for even group splits. */
   quantity?: number;
   dietary_tags?: DietaryTagId[];
+  /**
+   * Optional cap on how many of this item the drop sells (migration 054).
+   * Absent or null means unlimited; enforced server-side on every order.
+   */
+  stock?: number | null;
 };
 
 export type Club = {
@@ -217,6 +222,8 @@ export type Listing = {
   recommender_enabled: boolean;
   cause_name: string | null;
   cause_percent: number | null;
+  /** Fundraiser target in dollars, labelled by cause_name (migration 055). */
+  goal_amount: number | null;
   draft: boolean;
   auto_post_on_brand: boolean;
   /** The exact brand name the admin approved for this listing, or null. */
@@ -246,6 +253,28 @@ export type ListingWithClub = Listing & {
       > | null;
     }
   >;
+  /**
+   * Units left per capped item name, merged in by useListings/useListing from
+   * listing_stock (migration 054). Uncapped items are absent.
+   */
+  stock_left?: Record<string, number>;
+  /** Confirmed dollars raised, from listing_fundraising (migration 055). */
+  goal_raised?: number;
+};
+
+/** One row of listing_stock(): counts only, never order rows (migration 054). */
+export type ListingStockRow = {
+  listing_id: string;
+  item_name: string;
+  stock: number;
+  remaining: number;
+};
+
+/** One row of listing_fundraising(): aggregates only (migration 055). */
+export type ListingFundraisingRow = {
+  listing_id: string;
+  goal: number;
+  raised: number;
 };
 
 export type Craving = {
@@ -604,6 +633,7 @@ type ListingInsert = {
   recommender_enabled?: boolean;
   cause_name?: string | null;
   cause_percent?: number | null;
+  goal_amount?: number | null;
   draft?: boolean;
   auto_post_on_brand?: boolean;
   approved_brand?: string | null;
@@ -1238,6 +1268,14 @@ export type Database = {
       club_dashboard_stats: {
         Args: Record<string, never>;
         Returns: ClubDashboardStats | null;
+      };
+      listing_stock: {
+        Args: { p_listing_ids: string[] };
+        Returns: ListingStockRow[];
+      };
+      listing_fundraising: {
+        Args: { p_listing_ids: string[] };
+        Returns: ListingFundraisingRow[];
       };
       toggle_review_helpful: {
         Args: { p_review_id: string };

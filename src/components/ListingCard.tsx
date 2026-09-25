@@ -6,9 +6,12 @@ import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
 import { listingOrderTypes, ORDER_TYPE_BADGE, ORDER_TYPE_LABEL } from "@/lib/pickup";
 import { priceRange } from "@/lib/format";
+import { listingSoldOut, lowestLowItem } from "@/lib/stock";
 import { useCountdown } from "@/hooks/useCountdown";
 import { Badge } from "@/components/ui/badge";
 import { DietaryTag } from "@/components/DietaryTag";
+import { GoalProgress } from "@/components/GoalProgress";
+import { StockBadge } from "@/components/StockBadge";
 import { cn } from "@/lib/utils";
 
 export const cardItemVariants = {
@@ -31,6 +34,8 @@ export function ListingCard({ listing }: ListingCardProps) {
   const dietaryTags = listingDietaryTags(listing.items);
   const orderTypes = listingOrderTypes(listing);
   const spotCount = listing.listing_pickup_spots?.length ?? 0;
+  const soldOut = listingSoldOut(listing);
+  const low = soldOut ? null : lowestLowItem(listing);
 
   return (
     <motion.article variants={cardItemVariants} className="h-full">
@@ -90,6 +95,16 @@ export function ListingCard({ listing }: ListingCardProps) {
           </p>
         )}
 
+        {listing.cause_name && listing.goal_amount != null && (
+          <GoalProgress
+            compact
+            goal={Number(listing.goal_amount)}
+            raised={listing.goal_raised ?? 0}
+            label={listing.cause_name}
+            className="mt-2"
+          />
+        )}
+
         {listing.pickup_info && (
           <p className="mt-3 flex items-center gap-1.5 text-sm text-ink-muted">
             <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
@@ -133,9 +148,23 @@ export function ListingCard({ listing }: ListingCardProps) {
               </span>
             )}
           </Badge>
-          <Badge variant={timeLeft.expired || timeLeft.urgent ? "urgent" : "neutral"}>
-            {timeLeft.label}
-          </Badge>
+          <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+            {soldOut ? (
+              <StockBadge remaining={0} stock={0} />
+            ) : (
+              low && (
+                <StockBadge
+                  remaining={low.remaining}
+                  stock={low.item.stock}
+                  itemName={itemCount > 1 ? low.item.name : undefined}
+                  className="max-w-44"
+                />
+              )
+            )}
+            <Badge variant={timeLeft.expired || timeLeft.urgent ? "urgent" : "neutral"}>
+              {timeLeft.label}
+            </Badge>
+          </span>
         </div>
       </Link>
     </motion.article>

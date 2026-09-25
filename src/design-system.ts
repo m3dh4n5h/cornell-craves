@@ -36,8 +36,10 @@ export { AllergenIcon } from "./components/AllergenIcon";
 export { DeadlineTimer } from "./components/DeadlineTimer";
 export { DietaryTag } from "./components/DietaryTag";
 export { EmptyState } from "./components/EmptyState";
+export { GoalProgress } from "./components/GoalProgress";
 export { RatingStars } from "./components/RatingStars";
 export { SkeletonCard } from "./components/SkeletonCard";
+export { StockBadge } from "./components/StockBadge";
 export { TemplateCard } from "./components/TemplateCard";
 
 // Ordering and payment
