@@ -200,7 +200,7 @@ export default function ClubReservations() {
           <EmptyState
             icon={<Users className="size-6" aria-hidden="true" />}
             title="No pickup slots yet"
-            body="Add pickup slots when creating or editing a listing. Reservations land here as students grab them."
+            body="Add pickup dates to a listing and set one to a limited number of spots or timed slots. Reservations land here as students book them."
           />
         </div>
       ) : (

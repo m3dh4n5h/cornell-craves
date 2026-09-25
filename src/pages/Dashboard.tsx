@@ -15,8 +15,9 @@ import {
   RotateCcw,
   ShieldQuestion,
   Tag,
+  Trash2,
+  Undo2,
   Users,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -32,32 +33,37 @@ import {
   toItemDrafts,
   type ItemDraft,
 } from "@/components/ItemsEditor";
+import {
+  PickupEditor,
+  pickupError,
+  type SpotDraft,
+  type WindowDraft,
+} from "@/components/PickupEditor";
+import { SpotMapPreview } from "@/components/SpotMapPreview";
 import { EmptyState } from "@/components/EmptyState";
 import { GoalProgress } from "@/components/GoalProgress";
-import { LocationCombobox } from "@/components/LocationCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateTimeField } from "@/components/ui/datetime";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
-import { geocodeAddress, osmEmbedUrl, osmViewUrl, type GeocodeResult } from "@/lib/geocode";
+import { geocodeAddress, type GeocodeResult } from "@/lib/geocode";
 import { formatExpiry, formatPrice } from "@/lib/format";
 import { itemRemaining } from "@/lib/stock";
-import { formatDayKeyShort } from "@/lib/pickup";
+import { composeLocal, formatDayKeyShort } from "@/lib/pickup";
 import type {
   BrandRequest,
   CampusLocation,
   Club,
   ClubDashboardStats,
-  ListingPickupSpot,
   ListingWithClub,
-  OrderType,
-  PickupSlot,
+  PickupWindow,
+  RecurringTemplate,
+  TemplateSpot,
 } from "@/types/database";
 
 function toDatetimeLocal(date: Date): string {
@@ -65,6 +71,12 @@ function toDatetimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
     date.getHours(),
   )}:${pad(date.getMinutes())}`;
+}
+
+/** The local YYYY-MM-DD part of a Date, for seeding a new pickup date. */
+function toDateOnly(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -76,149 +88,49 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-interface SlotDraft {
-  id?: string;
-  start: string;
-  end: string;
-  max: string;
-  reserved: number;
-  locationId: string;
+type PublishMode = "publish" | "draft" | "autopost";
+
+/** A named cause needs a 1-100 donation percentage. */
+function causeError(name: string, percent: string): string | undefined {
+  if (!name.trim()) return undefined;
+  const value = Number.parseInt(percent, 10);
+  return Number.isFinite(value) && value >= 1 && value <= 100
+    ? undefined
+    : "Enter a donation percentage from 1 to 100.";
 }
 
-function slotDraftValid(draft: SlotDraft): boolean {
-  if (!draft.start || !draft.end) return false;
-  if (new Date(draft.end).getTime() <= new Date(draft.start).getTime()) return false;
-  const max = Number.parseInt(draft.max, 10);
-  return Number.isFinite(max) && max >= 1 && max >= draft.reserved;
-}
-
-function SlotsEditor({
-  slots,
-  locations,
-  onChange,
-}: {
-  slots: SlotDraft[];
-  locations: CampusLocation[];
-  onChange: (slots: SlotDraft[]) => void;
-}) {
-  const update = (index: number, patch: Partial<SlotDraft>) => {
-    onChange(slots.map((slot, i) => (i === index ? { ...slot, ...patch } : slot)));
-  };
-
-  const addSlot = () => {
-    const base = new Date(Date.now() + 24 * 3_600_000);
-    base.setMinutes(0, 0, 0);
-    const end = new Date(base.getTime() + 3_600_000);
-    onChange([
-      ...slots,
-      { start: toDatetimeLocal(base), end: toDatetimeLocal(end), max: "10", reserved: 0, locationId: "" },
-    ]);
-  };
-
-  return (
-    <div className="space-y-2">
-      {slots.length === 0 && (
-        <p className="text-xs text-ink-muted">
-          Optional. Add pickup windows and students reserve spots instead of mobbing your table.
-        </p>
-      )}
-      {slots.map((slot, index) => (
-        <div key={slot.id ?? `new-${index}`} className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 p-2.5">
-          <div className="min-w-0 flex-1 basis-full sm:basis-40">
-            <Label htmlFor={`slot-start-${index}`} className="mb-1 text-xs">
-              Starts
-            </Label>
-            <DateTimeField
-              id={`slot-start-${index}`}
-              value={slot.start}
-              onChange={(e) => update(index, { start: e.target.value })}
-            />
-          </div>
-          <div className="min-w-0 flex-1 basis-full sm:basis-40">
-            <Label htmlFor={`slot-end-${index}`} className="mb-1 text-xs">
-              Ends
-            </Label>
-            <DateTimeField
-              id={`slot-end-${index}`}
-              value={slot.end}
-              onChange={(e) => update(index, { end: e.target.value })}
-            />
-          </div>
-          <div className="w-24">
-            <Label htmlFor={`slot-max-${index}`} className="mb-1 text-xs">
-              Spots
-            </Label>
-            <Input
-              id={`slot-max-${index}`}
-              inputMode="numeric"
-              value={slot.max}
-              onChange={(e) => update(index, { max: e.target.value })}
-              className="font-mono"
-            />
-          </div>
-          <div className="min-w-0 flex-1 basis-full sm:basis-44">
-            <Label htmlFor={`slot-location-${index}`} className="mb-1 text-xs">
-              Pickup spot for this day
-            </Label>
-            <LocationCombobox
-              id={`slot-location-${index}`}
-              locationId={slot.locationId}
-              locations={locations}
-              onChange={(locationId) => update(index, { locationId })}
-              placeholder="No specific spot"
-              emptyHint="Not listed? Add a custom spot below."
-            />
-          </div>
-          {slot.reserved > 0 ? (
-            <Badge variant="default" className="mb-2.5">
-              {slot.reserved} reserved
-            </Badge>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onChange(slots.filter((_, i) => i !== index))}
-              aria-label={`Remove slot ${index + 1}`}
-              className="mb-0.5 px-2.5 text-ink-muted"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-      ))}
-      <Button type="button" variant="secondary" size="sm" onClick={addSlot} disabled={slots.length >= 12}>
-        <Plus className="size-4" aria-hidden="true" />
-        Add pickup slot
-      </Button>
-    </div>
-  );
+/** An optional club fundraising goal: a dollar amount up to $1,000,000 (055, 059). */
+function goalError(goal: string): string | undefined {
+  if (!goal.trim()) return undefined;
+  const value = Number.parseFloat(goal);
+  return Number.isFinite(value) && value > 0 && value <= 1_000_000
+    ? undefined
+    : "Enter a goal in dollars, like 800.";
 }
 
 /**
  * Non-blocking "N other drops on <day>" note (feature 6): the club picks a
- * pickup day, and this shows who else is already live that same day, so
- * they can spread out if they want to. Never blocks publishing.
+ * pickup date, and this shows who else is already live that same day, so they
+ * can spread out if they want to. Never blocks publishing.
  *
- * slots' dates come straight from the datetime-local strings the club typed
- * (YYYY-MM-DDTHH:MM); slicing off the date is exact and needs no timezone
- * math (the app already treats these as Eastern wall-clock input). Other
- * clubs' days come from the DB as real instants, so those go through
- * usePickupAgenda's Eastern-aware dayKey.
+ * The draft days come straight from the date the club typed (YYYY-MM-DD), so
+ * slicing them needs no timezone math. Other clubs' days come from the DB as
+ * real instants, so those go through usePickupAgenda's Eastern-aware dayKey.
  */
 function DayConflictWarning({
-  slots,
+  spots,
   expiresAt,
   otherAgenda,
 }: {
-  slots: SlotDraft[];
+  spots: SpotDraft[];
   expiresAt: string;
   otherAgenda: ReturnType<typeof usePickupAgenda>["entries"];
 }) {
   const draftDayKeys = useMemo(() => {
-    const filled = [...new Set(slots.filter((slot) => slot.start).map((slot) => slot.start.slice(0, 10)))];
-    return filled.length > 0 ? filled : expiresAt ? [expiresAt.slice(0, 10)] : [];
-  }, [slots, expiresAt]);
+    const dates = spots.flatMap((spot) => spot.windows.map((window) => window.date)).filter(Boolean);
+    const unique = [...new Set(dates)];
+    return unique.length > 0 ? unique : expiresAt ? [expiresAt.slice(0, 10)] : [];
+  }, [spots, expiresAt]);
 
   const conflicts = useMemo(
     () =>
@@ -248,192 +160,224 @@ function DayConflictWarning({
   );
 }
 
-interface SpotDraft {
-  id?: string;
-  locationId: string;
-  orderType: OrderType;
-  availableStart: string;
-  availableEnd: string;
-  hoursNote: string;
-}
+// ===========================================================================
+// Custom pickup spots: add one, and remove one you added
+// ===========================================================================
+//
+// Two halves of the same idea. A club can put a place on the map that is not
+// on the curated campus list, and it can take one back off again. Only its
+// own spots: the curated list is shared by every club and is not one club's
+// to edit.
+//
+// Removing is an archive, never a delete. A spot that has ever been used is
+// referenced by past listings, orders, map pins and calendar entries, and
+// deleting the row would strip the record of where students actually
+// collected. Archiving takes it out of the picker and leaves every one of
+// those intact. The archive is refused outright while a LIVE drop still uses
+// the spot: the club has to take it off that drop first and tell the students
+// who already ordered, because moving a pickup location out from under a paid
+// order is how someone ends up at an empty table.
 
-/** A spot's window spans >1 calendar day (datetime-local strings). */
-function spotDraftMultiDay(spot: SpotDraft): boolean {
-  if (!spot.availableStart || !spot.availableEnd) return false;
-  return new Date(spot.availableStart).toDateString() !== new Date(spot.availableEnd).toDateString();
-}
-
-type PublishMode = "publish" | "draft" | "autopost";
-
-/** Spots are optional, but no two may point at the same campus location, and a
- * spot's availability window must end after it starts. */
-function spotsError(spots: SpotDraft[]): string | undefined {
-  const picked = spots.map((spot) => spot.locationId).filter(Boolean);
-  if (new Set(picked).size !== picked.length) {
-    return "Each pickup spot must be a different campus location.";
-  }
-  for (const spot of spots) {
-    // "From" and "until" are a pair: half of one with none of the other
-    // cannot build a real calendar event, so require both together (or
-    // neither, which still means "shows the whole drop" for the map pin).
-    if (Boolean(spot.availableStart) !== Boolean(spot.availableEnd)) {
-      return "Set both a start and an end time for the pickup window, or leave both blank.";
-    }
-    if (
-      spot.availableStart &&
-      spot.availableEnd &&
-      new Date(spot.availableEnd).getTime() <= new Date(spot.availableStart).getTime()
-    ) {
-      return "Each spot's availability must end after it starts.";
-    }
-    // Multi-day windows must spell out the hours per day.
-    if (spotDraftMultiDay(spot) && !spot.hoursNote.trim()) {
-      return "Add the per-day hours for any spot whose window spans multiple days.";
-    }
-  }
-  return undefined;
-}
-
-/** A named cause needs a 1–100 donation percentage. */
-function causeError(name: string, percent: string): string | undefined {
-  if (!name.trim()) return undefined;
-  const value = Number.parseInt(percent, 10);
-  return Number.isFinite(value) && value >= 1 && value <= 100
-    ? undefined
-    : "Enter a donation percentage from 1 to 100.";
-}
-
-/** An optional club fundraising goal: a dollar amount up to $1,000,000 (055, 059). */
-function goalError(goal: string): string | undefined {
-  if (!goal.trim()) return undefined;
-  const value = Number.parseFloat(goal);
-  return Number.isFinite(value) && value > 0 && value <= 1_000_000
-    ? undefined
-    : "Enter a goal in dollars, like 800.";
-}
-
-function SpotsEditor({
-  spots,
+function CustomSpotManager({
   locations,
-  onChange,
+  clubId,
+  customName,
+  customAddress,
+  findingAddress,
+  foundLocation,
+  addingLocation,
+  onNameChange,
+  onAddressChange,
+  onFind,
+  onConfirm,
+  onCancelFound,
+  onLocationsChanged,
+  onSpotRemoved,
 }: {
-  spots: SpotDraft[];
   locations: CampusLocation[];
-  onChange: (spots: SpotDraft[]) => void;
+  clubId: string;
+  customName: string;
+  customAddress: string;
+  findingAddress: boolean;
+  foundLocation: GeocodeResult | null;
+  addingLocation: boolean;
+  onNameChange: (value: string) => void;
+  onAddressChange: (value: string) => void;
+  onFind: () => void;
+  onConfirm: () => void;
+  onCancelFound: () => void;
+  onLocationsChanged: (location: CampusLocation) => void;
+  onSpotRemoved: (locationId: string) => void;
 }) {
-  const update = (index: number, patch: Partial<SpotDraft>) => {
-    onChange(spots.map((spot, i) => (i === index ? { ...spot, ...patch } : spot)));
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<{ name: string; listings: { id: string; title: string }[] } | null>(
+    null,
+  );
+
+  const mine = locations.filter((location) => location.created_by === clubId);
+
+  const archive = async (location: CampusLocation) => {
+    setBusyId(location.id);
+    const { data, error } = await supabase.rpc("archive_campus_location", {
+      p_location_id: location.id,
+    });
+    setBusyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const result = data as { ok: boolean; blocking_listings?: { id: string; title: string }[] };
+    if (!result.ok) {
+      setBlocked({ name: location.name, listings: result.blocking_listings ?? [] });
+      return;
+    }
+    onLocationsChanged({ ...location, archived_at: new Date().toISOString() });
+    onSpotRemoved(location.id);
+    toast.success(`"${location.name}" removed from your spots.`);
   };
 
-  const addSpot = () => {
-    onChange([
-      ...spots,
-      { locationId: "", orderType: "preorder", availableStart: "", availableEnd: "", hoursNote: "" },
-    ]);
+  const restore = async (location: CampusLocation) => {
+    setBusyId(location.id);
+    const { error } = await supabase.rpc("restore_campus_location", { p_location_id: location.id });
+    setBusyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    onLocationsChanged({ ...location, archived_at: null });
+    toast.success(`"${location.name}" is back in your list.`);
   };
 
   return (
-    <div className="space-y-2">
-      {spots.length === 0 && (
-        <p className="text-xs text-ink-muted">
-          Optional. Add one or more campus spots so this drop shows on the map. Tag each as
-          pre-order or same-day, and set when pickup is available there.
-        </p>
+    <details className="mt-2.5 rounded-xl border border-border/70 p-3">
+      <summary className="cursor-pointer text-sm font-semibold">Your own pickup spots</summary>
+
+      {mine.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {mine.map((location) => (
+            <li
+              key={location.id}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-2.5 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {location.name}
+                {location.archived_at && (
+                  <span className="ml-2 text-xs text-ink-muted">(removed)</span>
+                )}
+              </span>
+              {location.archived_at ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  loading={busyId === location.id}
+                  onClick={() => void restore(location)}
+                >
+                  <Undo2 className="size-4" aria-hidden="true" />
+                  Put back
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-ink-muted"
+                  loading={busyId === location.id}
+                  onClick={() => void archive(location)}
+                  aria-label={`Remove ${location.name} from your spots`}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  Remove
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-      {spots.map((spot, index) => (
-        <div
-          key={spot.id ?? `new-${index}`}
-          className="rounded-xl border border-border/70 p-2.5"
+
+      {blocked && (
+        <div className="mt-3 rounded-xl border border-accent/40 bg-accent/10 p-3">
+          <p className="text-sm font-bold">"{blocked.name}" is still in use</p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Take it off these live drops first, and let anyone who already ordered know where to go
+            instead. Your Orders page exports every buyer's pickup details as a CSV you can email
+            from. Once the drops end, you can remove the spot.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {blocked.listings.map((listing) => (
+              <li key={listing.id} className="text-xs font-semibold">
+                {listing.title}
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setBlocked(null)}>
+            Got it
+          </Button>
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-ink-muted">
+        Not on the campus list? Add a name and street address; we place it on the map for you. Only
+        your club sees the spots you add.
+      </p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <Input
+          value={customName}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="North campus loading dock"
+          aria-label="Custom spot name"
+          className="h-10"
+          disabled={Boolean(foundLocation)}
+        />
+        <Input
+          value={customAddress}
+          onChange={(e) => onAddressChange(e.target.value)}
+          placeholder="107 Jessup Rd, Ithaca, NY"
+          aria-label="Street address"
+          className="h-10"
+          disabled={Boolean(foundLocation)}
+        />
+      </div>
+      {!foundLocation ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="mt-2"
+          loading={findingAddress}
+          onClick={onFind}
         >
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-0 flex-1 basis-full sm:basis-44">
-              <Label htmlFor={`spot-location-${index}`} className="mb-1 text-xs">
-                Campus spot
-              </Label>
-              <LocationCombobox
-                id={`spot-location-${index}`}
-                locationId={spot.locationId}
-                locations={locations}
-                onChange={(locationId) => update(index, { locationId })}
-                emptyHint="Not listed? Add a custom spot below."
-              />
-            </div>
-            <div className="min-w-0 flex-1 basis-full sm:basis-36">
-              <Label htmlFor={`spot-type-${index}`} className="mb-1 text-xs">
-                Ordering
-              </Label>
-              <Select
-                id={`spot-type-${index}`}
-                value={spot.orderType}
-                onChange={(e) => update(index, { orderType: e.target.value as OrderType })}
-              >
-                <option value="preorder">Pre-order only</option>
-                <option value="same_day">Same-day pickup</option>
-                <option value="both">Pre-order &amp; same-day</option>
-              </Select>
-            </div>
+          <Plus className="size-4" aria-hidden="true" />
+          Find address
+        </Button>
+      ) : (
+        <div className="mt-3 rounded-xl border border-primary-dark/40 bg-primary/10 p-3">
+          <p className="text-sm font-bold">Is this the right spot?</p>
+          <p className="mt-1 text-sm text-ink-muted">{foundLocation.displayName}</p>
+          <div className="mt-2.5 overflow-hidden rounded-lg border border-border">
+            <SpotMapPreview
+              latitude={foundLocation.lat}
+              longitude={foundLocation.lng}
+              label={customName.trim() || foundLocation.displayName}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" size="sm" loading={addingLocation} onClick={onConfirm}>
+              Confirm and add spot
+            </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => onChange(spots.filter((_, i) => i !== index))}
-              aria-label={`Remove pickup spot ${index + 1}`}
-              className="mb-0.5 px-2.5 text-ink-muted"
+              disabled={addingLocation}
+              onClick={onCancelFound}
             >
-              <X className="size-4" aria-hidden="true" />
+              Not it, search again
             </Button>
           </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <div className="min-w-0">
-              <Label htmlFor={`spot-from-${index}`} className="mb-1 text-xs">
-                Available from
-              </Label>
-              <DateTimeField
-                id={`spot-from-${index}`}
-                value={spot.availableStart}
-                onChange={(e) => update(index, { availableStart: e.target.value })}
-              />
-            </div>
-            <div className="min-w-0">
-              <Label htmlFor={`spot-until-${index}`} className="mb-1 text-xs">
-                Available until
-              </Label>
-              <DateTimeField
-                id={`spot-until-${index}`}
-                value={spot.availableEnd}
-                onChange={(e) => update(index, { availableEnd: e.target.value })}
-              />
-            </div>
-          </div>
-          <p className="mt-1 text-[11px] text-ink-muted">
-            The map shows this spot's pin only between these times, and buyers can add this exact
-            window to their calendar. Leave both blank to show it the whole drop.
-          </p>
-          {spotDraftMultiDay(spot) && (
-            <div className="mt-2">
-              <Label htmlFor={`spot-hours-${index}`} className="mb-1 text-xs">
-                Hours per day (spans multiple days)
-              </Label>
-              <Textarea
-                id={`spot-hours-${index}`}
-                value={spot.hoursNote}
-                onChange={(e) => update(index, { hoursNote: e.target.value })}
-                placeholder={"Mon Jun 16: 11am–2pm\nTue Jun 17: 5pm–8pm"}
-                maxLength={500}
-                className="min-h-16"
-              />
-              <p className="mt-1 text-[11px] text-ink-muted">
-                Shown in the map pin popup so buyers know the hours each day.
-              </p>
-            </div>
-          )}
         </div>
-      ))}
-      <Button type="button" variant="secondary" size="sm" onClick={addSpot} disabled={spots.length >= 8}>
-        <Plus className="size-4" aria-hidden="true" />
-        Add pickup spot
-      </Button>
-    </div>
+      )}
+    </details>
   );
 }
 
@@ -468,13 +412,26 @@ function ListingForm({
   const [title, setTitle] = useState(source?.title ?? "");
   const [description, setDescription] = useState(source?.description ?? "");
   const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(source?.items ?? null));
-  const [pickupInfo, setPickupInfo] = useState(source?.pickup_info ?? "");
-  // Multiple pickup spots, each with its own order type (Batch 2 #2/#3/#5).
+  // One tree: pickup spot -> dates -> bookable slots (migration 060). This
+  // replaced the old free-text "pickup details", the "hours per day" textarea
+  // and the separate "pickup days" list, which between them let one drop
+  // describe its pickup three different ways.
   const [spots, setSpots] = useState<SpotDraft[]>([]);
-  const [originalSpots, setOriginalSpots] = useState<ListingPickupSpot[]>([]);
-  // Contact email is per-listing and required on every drop (Batch 2 #1). On
-  // edit it loads the existing value; on a new listing it starts blank.
-  const [contactEmail, setContactEmail] = useState(source?.contact_email ?? "");
+  /** Spot and window ids that existed when the form loaded, to diff on save. */
+  const [originalSpotIds, setOriginalSpotIds] = useState<string[]>([]);
+  const [originalWindowIds, setOriginalWindowIds] = useState<string[]>([]);
+  const [originalSlotIds, setOriginalSlotIds] = useState<string[]>([]);
+  const [pickupLoaded, setPickupLoaded] = useState(false);
+  // The club carries a physical pile to the table and sells it on the day.
+  // Separate from a spot's order type, which only says which tables take
+  // walk-ups at all, and separate from the per-item pre-order cap (054).
+  const [sameDayEnabled, setSameDayEnabled] = useState(source?.same_day_enabled ?? false);
+  // Contact email for questions about this drop. Prefilled from the club's
+  // account setting so nobody retypes it on every listing, still overridable
+  // here because a specific drop may have a specific officer running it.
+  const [contactEmail, setContactEmail] = useState(
+    source?.contact_email ?? club.listing_contact_email ?? club.email ?? "",
+  );
   // Show the "which member recommended you?" question on the order form (#2).
   const [recommenderEnabled, setRecommenderEnabled] = useState(source?.recommender_enabled ?? false);
   // Optional cause + percentage of earnings donated (build spec 5 #9).
@@ -493,13 +450,14 @@ function ListingForm({
       ? toDatetimeLocal(new Date(initial.expires_at))
       : toDatetimeLocal(new Date(Date.now() + 6 * 3_600_000)),
   );
-  const [slots, setSlots] = useState<SlotDraft[]>([]);
   // Same-day conflict warning (feature 6): other clubs' live drops sharing a
   // pickup day with this one. Non-blocking, purely informational.
   const { entries: otherAgenda } = usePickupAgenda({ excludeListingId: initial?.id });
-  const [originalSlots, setOriginalSlots] = useState<PickupSlot[]>([]);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  /** A template already exists for this brand; the club decides what to do. */
+  const [templateClash, setTemplateClash] = useState<RecurringTemplate | null>(null);
   // Request-a-brand (#17): brands not in the merged list can be sent to admin.
   const brandOptions = useBrandOptions();
   const [requestingBrand, setRequestingBrand] = useState(false);
@@ -550,13 +508,7 @@ function ListingForm({
     onLocationAdded(location);
     setSpots((previous) => [
       ...previous,
-      {
-        locationId: location.id,
-        orderType: "preorder",
-        availableStart: "",
-        availableEnd: "",
-        hoursNote: "",
-      },
+      { locationId: location.id, orderType: "preorder", windows: [], sameDay: {} },
     ]);
     setCustomName("");
     setCustomAddress("");
@@ -566,62 +518,119 @@ function ListingForm({
 
   const initialId = initial?.id ?? null;
 
+  /**
+   * Load the drop's pickup tree for editing: spots, each spot's dates, and the
+   * bookable slots those dates generated. One effect rather than three so the
+   * form never renders a half-built tree (a spot whose dates have not arrived
+   * looks, to the club, exactly like a spot with no dates).
+   *
+   * Slots left over from before migration 060 have no window_id. They are
+   * hung on their spot's matching window when one exists and otherwise left
+   * alone: quietly re-homing a slot could move a student's booked pickup to a
+   * different building.
+   */
   useEffect(() => {
-    if (!initialId) return;
+    if (!initialId) {
+      setPickupLoaded(true);
+      return;
+    }
     let cancelled = false;
-    void supabase
-      .from("pickup_slots")
-      .select("*")
-      .eq("listing_id", initialId)
-      .order("start_time", { ascending: true })
-      .then(({ data }) => {
-        if (cancelled || !data) return;
-        setOriginalSlots(data);
-        setSlots(
-          data.map((slot) => ({
-            id: slot.id,
-            start: toDatetimeLocal(new Date(slot.start_time)),
-            end: toDatetimeLocal(new Date(slot.end_time)),
-            max: String(slot.max_reservations),
-            reserved: slot.reserved_count,
-            locationId: slot.location_id ?? "",
-          })),
-        );
-      });
+    void (async () => {
+      const [spotsResult, windowsResult, slotsResult, stockResult] = await Promise.all([
+        supabase
+          .from("listing_pickup_spots")
+          .select("*")
+          .eq("listing_id", initialId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("listing_pickup_windows")
+          .select("*")
+          .eq("listing_id", initialId)
+          .order("start_time", { ascending: true }),
+        supabase
+          .from("pickup_slots")
+          .select("*")
+          .eq("listing_id", initialId)
+          .order("start_time", { ascending: true }),
+        supabase
+          .from("listing_same_day_stock")
+          .select("spot_id, item_name, quantity")
+          .eq("listing_id", initialId),
+      ]);
+      if (cancelled) return;
+
+      const spotRows = spotsResult.data ?? [];
+      const windowRows = (windowsResult.data ?? []) as PickupWindow[];
+      const slotRows = slotsResult.data ?? [];
+      const stockRows = stockResult.data ?? [];
+
+      setOriginalSpotIds(spotRows.map((row) => row.id));
+      setOriginalWindowIds(windowRows.map((row) => row.id));
+      setOriginalSlotIds(slotRows.map((row) => row.id));
+
+      setSpots(
+        spotRows.map((spot) => ({
+          id: spot.id,
+          locationId: spot.location_id,
+          orderType: spot.order_type,
+          sameDay: Object.fromEntries(
+            stockRows
+              .filter((row) => row.spot_id === spot.id)
+              .map((row) => [row.item_name, String(row.quantity)]),
+          ),
+          windows: windowRows
+            .filter((window) => window.spot_id === spot.id)
+            .map<WindowDraft>((window) => {
+              const start = new Date(window.start_time);
+              const end = new Date(window.end_time);
+              const mine = slotRows.filter((slot) => slot.window_id === window.id);
+              return {
+                id: window.id,
+                date: toDateOnly(start),
+                startMinutes: start.getHours() * 60 + start.getMinutes(),
+                endMinutes: end.getHours() * 60 + end.getMinutes(),
+                slotMode: window.slot_mode,
+                capacity:
+                  window.slot_mode === "capacity"
+                    ? String(window.capacity ?? mine[0]?.max_reservations ?? "")
+                    : "",
+                splitMinutes: window.split_minutes,
+                note: window.note ?? "",
+                slots:
+                  window.slot_mode === "split"
+                    ? mine.map((slot) => {
+                        const slotStart = new Date(slot.start_time);
+                        const slotEnd = new Date(slot.end_time);
+                        return {
+                          id: slot.id,
+                          startMinutes: slotStart.getHours() * 60 + slotStart.getMinutes(),
+                          endMinutes: slotEnd.getHours() * 60 + slotEnd.getMinutes(),
+                          max: String(slot.max_reservations),
+                          reserved: slot.reserved_count,
+                        };
+                      })
+                    : [],
+              };
+            }),
+        })),
+      );
+      setPickupLoaded(true);
+    })();
     return () => {
       cancelled = true;
     };
   }, [initialId]);
 
-  // Load existing pickup spots so the club can edit them later (#5).
-  useEffect(() => {
-    if (!initialId) return;
-    let cancelled = false;
-    void supabase
-      .from("listing_pickup_spots")
-      .select("*")
-      .eq("listing_id", initialId)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => {
-        if (cancelled || !data) return;
-        setOriginalSpots(data);
-        setSpots(
-          data.map((spot) => ({
-            id: spot.id,
-            locationId: spot.location_id,
-            orderType: spot.order_type,
-            availableStart: spot.available_start ? toDatetimeLocal(new Date(spot.available_start)) : "",
-            availableEnd: spot.available_end ? toDatetimeLocal(new Date(spot.available_end)) : "",
-            hoursNote: spot.hours_note ?? "",
-          })),
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [initialId]);
-
-  const filledSlots = slots.filter((slot) => slot.start || slot.end);
+  const itemNames = useMemo(
+    () => parseItemDrafts(items).map((item) => item.name),
+    [items],
+  );
+  // Archived spots keep resolving on the listings that already use them, but
+  // they are not offered for a new one.
+  const activeLocations = useMemo(
+    () => locations.filter((location) => !location.archived_at),
+    [locations],
+  );
   const errors = {
     brand: brand.trim() ? undefined : "Pick the brand you are selling.",
     title: title.trim() ? undefined : "Give the drop a title.",
@@ -637,63 +646,190 @@ function ListingForm({
       : new Date(expiresAt).getTime() <= Date.now()
         ? "The end time has to be in the future."
         : undefined,
-    slots: filledSlots.every(slotDraftValid)
-      ? undefined
-      : "Every pickup slot needs a start, an end after it, and at least as many spots as already reserved.",
-    spots: spotsError(spots),
+    spots: pickupError(spots),
     cause: causeError(causeName, causePercent),
     goal: goalError(goalAmount),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
-  const syncSpots = async (listingId: string): Promise<string | null> => {
+  /**
+   * Write the whole pickup tree: spots, their dates, the slots those dates
+   * generate, and the same-day pile at each table.
+   *
+   * Order matters and is not negotiable. Rows are written parents first
+   * (spot -> window -> slot) because each child carries its parent's id, and
+   * removals go last, because deleting a spot cascades to its windows and
+   * their slots - doing that first would delete rows this pass is about to
+   * re-create, and a student's reservation with them.
+   *
+   * A slot that already has reservations is never deleted here. The form
+   * blocks removing one, so reaching this code with bookings on a vanished
+   * slot means something is out of step, and leaving the row is the safe way
+   * to be wrong: the student still has a pickup.
+   */
+  const syncPickup = async (listingId: string): Promise<string | null> => {
     const filled = spots.filter((spot) => spot.locationId);
-    const keptIds = new Set(filled.map((spot) => spot.id).filter(Boolean));
+    const keptSpotIds = new Set<string>();
+    const keptWindowIds = new Set<string>();
+    const keptSlotIds = new Set<string>();
 
-    for (const original of originalSpots) {
-      if (!keptIds.has(original.id)) {
-        const { error } = await supabase.from("listing_pickup_spots").delete().eq("id", original.id);
+    for (const spot of filled) {
+      const spotPayload = {
+        listing_id: listingId,
+        location_id: spot.locationId,
+        order_type: spot.orderType,
+      };
+      let spotId = spot.id ?? null;
+      if (spotId) {
+        const { error } = await supabase
+          .from("listing_pickup_spots")
+          .update(spotPayload)
+          .eq("id", spotId);
+        if (error) return error.message;
+      } else {
+        const { data, error } = await supabase
+          .from("listing_pickup_spots")
+          .insert(spotPayload)
+          .select("id")
+          .single();
+        if (error || !data) return error?.message ?? "Could not save a pickup spot";
+        spotId = data.id;
+      }
+      keptSpotIds.add(spotId);
+
+      for (const window of spot.windows) {
+        const startIso = new Date(composeLocal(window.date, window.startMinutes)).toISOString();
+        const endIso = new Date(composeLocal(window.date, window.endMinutes)).toISOString();
+        const windowPayload = {
+          listing_id: listingId,
+          spot_id: spotId,
+          start_time: startIso,
+          end_time: endIso,
+          slot_mode: window.slotMode,
+          capacity:
+            window.slotMode === "capacity" ? Number.parseInt(window.capacity, 10) : null,
+          split_minutes: window.slotMode === "split" ? window.splitMinutes : null,
+          note: window.note.trim() || null,
+        };
+        let windowId = window.id ?? null;
+        if (windowId) {
+          const { error } = await supabase
+            .from("listing_pickup_windows")
+            .update(windowPayload)
+            .eq("id", windowId);
+          if (error) return error.message;
+        } else {
+          const { data, error } = await supabase
+            .from("listing_pickup_windows")
+            .insert(windowPayload)
+            .select("id")
+            .single();
+          if (error || !data) return error?.message ?? "Could not save a pickup date";
+          windowId = data.id;
+        }
+        keptWindowIds.add(windowId);
+
+        // 'open' has nothing to book. 'capacity' is one slot covering the
+        // whole window, which is what makes every existing reservation path
+        // (reserve_slot, the student's calendar, the club's QR gating) work
+        // on it unchanged. 'split' is one slot per piece.
+        const slotRows =
+          window.slotMode === "capacity"
+            ? [
+                {
+                  start: startIso,
+                  end: endIso,
+                  max: Number.parseInt(window.capacity, 10),
+                  id: undefined as string | undefined,
+                },
+              ]
+            : window.slotMode === "split"
+              ? window.slots.map((slot) => ({
+                  start: new Date(composeLocal(window.date, slot.startMinutes)).toISOString(),
+                  end: new Date(composeLocal(window.date, slot.endMinutes)).toISOString(),
+                  max: Number.parseInt(slot.max, 10),
+                  id: slot.id,
+                }))
+              : [];
+
+        for (const row of slotRows) {
+          const slotPayload = {
+            listing_id: listingId,
+            window_id: windowId,
+            start_time: row.start,
+            end_time: row.end,
+            max_reservations: row.max,
+            location_id: spot.locationId,
+          };
+          if (row.id) {
+            const { error } = await supabase
+              .from("pickup_slots")
+              .update(slotPayload)
+              .eq("id", row.id);
+            if (error) return error.message;
+            keptSlotIds.add(row.id);
+          } else {
+            const { data, error } = await supabase
+              .from("pickup_slots")
+              .insert(slotPayload)
+              .select("id")
+              .single();
+            if (error || !data) return error?.message ?? "Could not save a pickup slot";
+            keptSlotIds.add(data.id);
+          }
+        }
+      }
+
+      // Same-day counts, per item at this table. A blank or zero box means
+      // "not selling this here on the day", which is a removal, not a zero
+      // row, so record_walk_up_sale's "set a count first" guard still bites.
+      const stockRows = sameDayEnabled
+        ? itemNames
+            .map((name) => ({ name, quantity: Number.parseInt(spot.sameDay[name] ?? "", 10) }))
+            .filter((row) => Number.isFinite(row.quantity) && row.quantity > 0)
+        : [];
+      const { error: clearError } = await supabase
+        .from("listing_same_day_stock")
+        .delete()
+        .eq("spot_id", spotId)
+        .not("item_name", "in", `(${stockRows.map((row) => `"${row.name.replace(/"/g, '""')}"`).join(",") || '""'})`);
+      if (clearError) return clearError.message;
+      if (stockRows.length > 0) {
+        const { error } = await supabase.from("listing_same_day_stock").upsert(
+          stockRows.map((row) => ({
+            listing_id: listingId,
+            spot_id: spotId,
+            item_name: row.name,
+            quantity: row.quantity,
+            updated_at: new Date().toISOString(),
+          })),
+          { onConflict: "spot_id,item_name" },
+        );
         if (error) return error.message;
       }
     }
-    for (const draft of filled) {
-      const payload = {
-        listing_id: listingId,
-        location_id: draft.locationId,
-        order_type: draft.orderType,
-        available_start: draft.availableStart ? new Date(draft.availableStart).toISOString() : null,
-        available_end: draft.availableEnd ? new Date(draft.availableEnd).toISOString() : null,
-        hours_note: spotDraftMultiDay(draft) ? draft.hoursNote.trim() || null : null,
-      };
-      const { error } = draft.id
-        ? await supabase.from("listing_pickup_spots").update(payload).eq("id", draft.id)
-        : await supabase.from("listing_pickup_spots").insert(payload);
+
+    // Removals last: a spot delete cascades to its windows and their slots.
+    const goneSlots = originalSlotIds.filter((id) => !keptSlotIds.has(id));
+    if (goneSlots.length > 0) {
+      const { error } = await supabase
+        .from("pickup_slots")
+        .delete()
+        .in("id", goneSlots)
+        .eq("reserved_count", 0);
       if (error) return error.message;
     }
-    return null;
-  };
-
-  const syncSlots = async (listingId: string): Promise<string | null> => {
-    const validDrafts = filledSlots.filter(slotDraftValid);
-    const keptIds = new Set(validDrafts.map((draft) => draft.id).filter(Boolean));
-
-    for (const original of originalSlots) {
-      if (!keptIds.has(original.id) && original.reserved_count === 0) {
-        const { error } = await supabase.from("pickup_slots").delete().eq("id", original.id);
-        if (error) return error.message;
-      }
+    const goneWindows = originalWindowIds.filter((id) => !keptWindowIds.has(id));
+    if (goneWindows.length > 0) {
+      const { error } = await supabase
+        .from("listing_pickup_windows")
+        .delete()
+        .in("id", goneWindows);
+      if (error) return error.message;
     }
-    for (const draft of validDrafts) {
-      const payload = {
-        listing_id: listingId,
-        start_time: new Date(draft.start).toISOString(),
-        end_time: new Date(draft.end).toISOString(),
-        max_reservations: Number.parseInt(draft.max, 10),
-        location_id: draft.locationId || null,
-      };
-      const { error } = draft.id
-        ? await supabase.from("pickup_slots").update(payload).eq("id", draft.id)
-        : await supabase.from("pickup_slots").insert(payload);
+    const goneSpots = originalSpotIds.filter((id) => !keptSpotIds.has(id));
+    if (goneSpots.length > 0) {
+      const { error } = await supabase.from("listing_pickup_spots").delete().in("id", goneSpots);
       if (error) return error.message;
     }
     return null;
@@ -735,10 +871,10 @@ function ListingForm({
       title: title.trim(),
       description: description.trim() || null,
       items: parseItemDrafts(items),
-      pickup_info: pickupInfo.trim() || null,
       pickup_location_id: firstSpot,
       contact_email: contactEmail.trim(),
       recommender_enabled: recommenderEnabled,
+      same_day_enabled: sameDayEnabled,
       cause_name: causeName.trim() || null,
       cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
       // Unapproved brands can't go live: keep as a draft or auto-post on approval (#7).
@@ -780,14 +916,11 @@ function ListingForm({
       );
     }
 
-    const slotError = listingId ? await syncSlots(listingId) : null;
-    const spotError = listingId && !slotError ? await syncSpots(listingId) : null;
-    const goalSyncError = listingId && !slotError && !spotError ? await syncGoal(listingId) : null;
+    const pickupSyncError = listingId ? await syncPickup(listingId) : null;
+    const goalSyncError = listingId && !pickupSyncError ? await syncGoal(listingId) : null;
     setSubmitting(false);
-    if (slotError) {
-      toast.error(`Listing saved, but slots failed: ${slotError}`);
-    } else if (spotError) {
-      toast.error(`Listing saved, but pickup spots failed: ${spotError}`);
+    if (pickupSyncError) {
+      toast.error(`Listing saved, but pickup failed: ${pickupSyncError}`);
     } else if (goalSyncError) {
       toast.error(`Listing saved, but the goal failed: ${goalSyncError}`);
     } else if (mode === "draft") {
@@ -828,6 +961,118 @@ function ListingForm({
     toast.success("Brand requested. An admin will review adding it to the list.");
   };
 
+  // ===================== Save as template =====================
+  //
+  // A template is this listing minus its calendar. Dates are deliberately not
+  // stored: a template reused in three weeks would otherwise carry
+  // three-week-old dates, and a club posting from it would publish a drop
+  // whose pickup already happened. Windows keep their shape instead - which
+  // day of the run, and what time of day - and posting from the template asks
+  // for the first pickup day and rebuilds real timestamps from that.
+
+  /** The earliest pickup date across every spot; day offsets count from it. */
+  const firstPickupDate = useMemo(() => {
+    const dates = spots.flatMap((spot) => spot.windows.map((window) => window.date)).filter(Boolean);
+    return dates.length > 0 ? dates.sort()[0] : "";
+  }, [spots]);
+
+  const buildPickupConfig = (): TemplateSpot[] =>
+    spots
+      .filter((spot) => spot.locationId)
+      .map((spot) => ({
+        location_id: spot.locationId,
+        order_type: spot.orderType,
+        windows: spot.windows.map((window) => ({
+          day_offset: firstPickupDate
+            ? Math.round(
+                (new Date(`${window.date}T12:00:00`).getTime() -
+                  new Date(`${firstPickupDate}T12:00:00`).getTime()) /
+                  86_400_000,
+              )
+            : 0,
+          start_minutes: window.startMinutes,
+          end_minutes: window.endMinutes,
+          slot_mode: window.slotMode,
+          capacity: window.slotMode === "capacity" ? Number.parseInt(window.capacity, 10) || null : null,
+          split_minutes: window.slotMode === "split" ? window.splitMinutes : null,
+          note: window.note.trim() || null,
+        })),
+        same_day_stock: itemNames
+          .map((name) => ({ item_name: name, quantity: Number.parseInt(spot.sameDay[name] ?? "", 10) }))
+          .filter((row) => Number.isFinite(row.quantity) && row.quantity > 0),
+      }));
+
+  const templatePayload = () => ({
+    club_id: club.id,
+    name: title.trim() || brand.trim(),
+    brand: brand.trim(),
+    items: parseItemDrafts(items),
+    description: description.trim() || null,
+    // A template saved from a listing is a one-off to post on demand, not a
+    // schedule. The club turns on recurrence on the Templates page if it
+    // wants one, which keeps "save this setup" from silently creating a
+    // drop that posts itself every week.
+    mode: "one_time" as const,
+    frequency: "weekly" as const,
+    is_active: true,
+    auto_active: false,
+    next_run_date: null,
+    contact_email: contactEmail.trim() || null,
+    cause_name: causeName.trim() || null,
+    cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
+    goal_amount: goalAmount.trim() ? Math.round(Number.parseFloat(goalAmount) * 100) / 100 : null,
+    goal_public: goalPublic,
+    recommender_enabled: recommenderEnabled,
+    same_day_enabled: sameDayEnabled,
+    duration_hours: expiresAt
+      ? Math.max(1, Math.round((new Date(expiresAt).getTime() - Date.now()) / 3_600_000))
+      : null,
+    pickup_config: buildPickupConfig(),
+  });
+
+  const writeTemplate = async (replaceId: string | null) => {
+    setSavingTemplate(true);
+    const payload = templatePayload();
+    const { error } = replaceId
+      ? await supabase.from("recurring_templates").update(payload).eq("id", replaceId)
+      : await supabase.from("recurring_templates").insert(payload);
+    setSavingTemplate(false);
+    setTemplateClash(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(
+      replaceId
+        ? "Template replaced. Post from it any time on your Templates page."
+        : "Saved as a template. Post from it any time on your Templates page.",
+    );
+  };
+
+  const saveAsTemplate = async () => {
+    setShowErrors(true);
+    if (errors.brand || errors.title || errors.items || errors.spots) {
+      toast.error("Fix the highlighted fields before saving a template.");
+      return;
+    }
+    setSavingTemplate(true);
+    // Same brand, same club: almost always the club redoing a setup it already
+    // saved, so ask rather than quietly stacking near-identical templates.
+    const { data } = await supabase
+      .from("recurring_templates")
+      .select("*")
+      .eq("club_id", club.id)
+      .ilike("brand", brand.trim())
+      .limit(1);
+    setSavingTemplate(false);
+    const existing = (data ?? [])[0] as RecurringTemplate | undefined;
+    if (existing) {
+      setTemplateClash(existing);
+      return;
+    }
+    await writeTemplate(null);
+  };
+
   return (
     <form
       onSubmit={(event) => {
@@ -844,8 +1089,8 @@ function ListingForm({
       </h2>
       {duplicateOf && (
         <p className="mt-1 text-xs text-ink-muted">
-          Items, prices, and details copied over. Pickup slots and spots start fresh; set a new end
-          time below.
+          Items, prices, and details copied over. Pickup spots, dates and times start fresh; set a new
+          end time below.
         </p>
       )}
 
@@ -948,103 +1193,76 @@ function ListingForm({
       </div>
 
       <div className="mt-5">
-        <Label>Pickup spots (show on the map)</Label>
-        <SpotsEditor spots={spots} locations={locations} onChange={setSpots} />
+        <Label>Pickup: where, when, and how many</Label>
+        <p className="mb-2 mt-1 text-xs text-ink-muted">
+          Each spot below shows on the map and carries its own dates. Run one table on several
+          days, or several tables on the same day, at whatever times suit each one.
+        </p>
+        {!pickupLoaded ? (
+          <p className="text-xs text-ink-muted">Loading this drop's pickup dates...</p>
+        ) : (
+          <PickupEditor
+            spots={spots}
+            locations={activeLocations}
+            itemNames={itemNames}
+            sameDayEnabled={sameDayEnabled}
+            defaultDate={expiresAt ? expiresAt.slice(0, 10) : toDateOnly(new Date())}
+            onChange={setSpots}
+          />
+        )}
         <FieldError message={showErrors ? errors.spots : undefined} />
-        <details className="mt-2 rounded-xl border border-border/70 p-3">
-          <summary className="cursor-pointer text-sm font-semibold">Add a custom spot</summary>
-          <p className="mt-2 text-xs text-ink-muted">
-            Not in the list? Add a name and street address; we place it on the map for you.
-          </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Input
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              placeholder="RPCC"
-              aria-label="Custom spot name"
-              className="h-10"
-              disabled={Boolean(foundLocation)}
-            />
-            <Input
-              value={customAddress}
-              onChange={(e) => setCustomAddress(e.target.value)}
-              placeholder="107 Jessup Rd, Ithaca, NY"
-              aria-label="Street address"
-              className="h-10"
-              disabled={Boolean(foundLocation)}
-            />
-          </div>
-          {!foundLocation ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="mt-2"
-              loading={findingAddress}
-              onClick={() => void findAddress()}
-            >
-              <Plus className="size-4" aria-hidden="true" />
-              Find address
-            </Button>
-          ) : (
-            <div className="mt-3 rounded-xl border border-primary-dark/40 bg-primary/10 p-3">
-              <p className="text-sm font-bold">Is this the right spot?</p>
-              <p className="mt-1 text-sm text-ink-muted">{foundLocation.displayName}</p>
-              <div className="mt-2.5 overflow-hidden rounded-lg border border-border">
-                <iframe
-                  title={`Map preview of ${customName.trim() || "the new spot"}`}
-                  src={osmEmbedUrl(foundLocation.lat, foundLocation.lng)}
-                  className="h-40 w-full"
-                  loading="lazy"
-                />
-              </div>
-              <a
-                href={osmViewUrl(foundLocation.lat, foundLocation.lng)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1.5 inline-block text-xs font-semibold text-ink underline-offset-2 hover-fine:underline"
-              >
-                Open in OpenStreetMap
-              </a>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  loading={addingLocation}
-                  onClick={() => void confirmCustomLocation()}
-                >
-                  Confirm and add spot
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={addingLocation}
-                  onClick={() => setFoundLocation(null)}
-                >
-                  Not it, search again
-                </Button>
-              </div>
-            </div>
-          )}
-        </details>
-      </div>
+        <DayConflictWarning spots={spots} expiresAt={expiresAt} otherAgenda={otherAgenda} />
 
-      <div className="mt-5">
-        <Label htmlFor="pickup">Pickup details (optional)</Label>
-        <Input
-          id="pickup"
-          value={pickupInfo}
-          onChange={(e) => setPickupInfo(e.target.value)}
-          placeholder="Duffield atrium, 5 to 8 pm"
+        <CustomSpotManager
+          locations={locations}
+          clubId={club.id}
+          customName={customName}
+          customAddress={customAddress}
+          findingAddress={findingAddress}
+          foundLocation={foundLocation}
+          addingLocation={addingLocation}
+          onNameChange={setCustomName}
+          onAddressChange={setCustomAddress}
+          onFind={() => void findAddress()}
+          onConfirm={() => void confirmCustomLocation()}
+          onCancelFound={() => setFoundLocation(null)}
+          onLocationsChanged={onLocationAdded}
+          onSpotRemoved={(locationId) =>
+            setSpots((previous) => previous.filter((spot) => spot.locationId !== locationId))
+          }
         />
       </div>
 
-      <div className="mt-5">
-        <Label>Pickup days</Label>
-        <SlotsEditor slots={slots} locations={locations} onChange={setSlots} />
-        <FieldError message={showErrors ? errors.slots : undefined} />
-        <DayConflictWarning slots={slots} expiresAt={expiresAt} otherAgenda={otherAgenda} />
+      <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={sameDayEnabled}
+            onChange={(e) => setSameDayEnabled(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
+          />
+          <span>
+            <span className="block text-sm font-semibold">
+              Sell at the table on the day (same-day stock)
+            </span>
+            <span className="block text-xs text-ink-muted">
+              Track how many of each item you are carrying to each same-day spot. Walk-up sales get
+              recorded on your Orders page and count toward your revenue and goal, the same as a
+              pre-order. Separate from the pre-order limits you set on each item above.
+            </span>
+          </span>
+        </label>
+        {sameDayEnabled && itemNames.length === 0 && (
+          <p className="mt-2 text-xs text-ink-muted">Add an item above and the counts appear on each same-day spot.</p>
+        )}
+        {sameDayEnabled &&
+          itemNames.length > 0 &&
+          !spots.some((spot) => spot.orderType === "same_day" || spot.orderType === "both") && (
+            <p className="mt-2 text-xs text-ink-muted">
+              No spot takes walk-ups yet. Set one to "Same-day pickup" or "Pre-order &amp; same-day"
+              above to enter its counts.
+            </p>
+          )}
       </div>
 
       <div className="mt-5">
@@ -1148,9 +1366,58 @@ function ListingForm({
         </p>
       )}
 
+      {templateClash && (
+        <div className="mt-5 rounded-2xl border border-primary-dark/40 bg-primary/10 p-3.5">
+          <p className="text-sm font-bold">
+            You already have a "{templateClash.brand}" template
+          </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            It is called "{templateClash.name}". Replace it with this setup, or keep both and pick
+            between them when you post.
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              loading={savingTemplate}
+              onClick={() => void writeTemplate(templateClash.id)}
+            >
+              Replace it
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              loading={savingTemplate}
+              onClick={() => void writeTemplate(null)}
+            >
+              Keep both
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={savingTemplate}
+              onClick={() => setTemplateClash(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          loading={savingTemplate && !templateClash}
+          onClick={() => void saveAsTemplate()}
+        >
+          <LayoutTemplate className="size-4" aria-hidden="true" />
+          Save as template
         </Button>
         <Button
           type="button"
@@ -1433,9 +1700,17 @@ export default function Dashboard() {
     };
   }, [userId]);
 
+  /**
+   * A campus location was added, archived or restored. Upsert by id rather
+   * than append: archiving calls this with a location that is already in the
+   * list, and appending would show the club two copies of its own spot.
+   */
   const addLocation = (location: CampusLocation) => {
     setLocations((previous) =>
-      [...previous, location].sort((a, b) => a.name.localeCompare(b.name)),
+      (previous.some((existing) => existing.id === location.id)
+        ? previous.map((existing) => (existing.id === location.id ? location : existing))
+        : [...previous, location]
+      ).sort((a, b) => a.name.localeCompare(b.name)),
     );
   };
 

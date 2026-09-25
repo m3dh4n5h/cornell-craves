@@ -7,6 +7,7 @@ import type {
   OrderQRCode,
   OrderStatus,
   OrderType,
+  PickupWindowSummary,
   PickupType,
 } from "@/types/database";
 
@@ -50,10 +51,12 @@ type AuthedOrderRow = Order & {
     campus_locations: { name: string } | null;
     clubs: { name: string } | null;
     listing_pickup_spots: {
+      id: string;
       order_type: OrderType;
       available_start: string | null;
       available_end: string | null;
       campus_locations: { name: string; latitude: number; longitude: number } | null;
+      listing_pickup_windows: PickupWindowSummary[] | null;
     }[];
   } | null;
   order_qr_codes: OrderQRCode[];
@@ -77,12 +80,16 @@ function mapAuthedRow(row: AuthedOrderRow): MyOrder {
       spot.campus_locations
         ? [
             {
+              id: spot.id,
               order_type: spot.order_type,
               available_start: spot.available_start,
               available_end: spot.available_end,
               location_name: spot.campus_locations.name,
               latitude: Number(spot.campus_locations.latitude),
               longitude: Number(spot.campus_locations.longitude),
+              windows: [...(spot.listing_pickup_windows ?? [])].sort(
+                (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+              ),
             },
           ]
         : [],
@@ -91,7 +98,7 @@ function mapAuthedRow(row: AuthedOrderRow): MyOrder {
 }
 
 const AUTHED_ORDER_SELECT =
-  "*, listings(title, brand, pickup_info, contact_email, expires_at, campus_locations(name), clubs(name), listing_pickup_spots(order_type, available_start, available_end, campus_locations(name, latitude, longitude))), order_qr_codes(*)";
+  "*, listings(title, brand, pickup_info, contact_email, expires_at, campus_locations(name), clubs(name), listing_pickup_spots(id, order_type, available_start, available_end, campus_locations(name, latitude, longitude), listing_pickup_windows(id, start_time, end_time, slot_mode, capacity, split_minutes, note))), order_qr_codes(*)";
 
 /** Signed-in students query by user id (RLS); guests look up via the RPC. */
 export async function fetchMyOrders(options: {

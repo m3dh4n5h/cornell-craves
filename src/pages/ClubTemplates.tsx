@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
+import { formatMinutes, splitWindow } from "@/lib/pickup";
 import { cn } from "@/lib/utils";
 import type { CampusLocation, RecurringTemplate } from "@/types/database";
 
@@ -64,6 +65,27 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
   const [mode, setMode] = useState<RecurringTemplate["mode"]>(initial?.mode ?? "one_time");
   const [frequency, setFrequency] = useState<RecurringTemplate["frequency"]>(initial?.frequency ?? "weekly");
   const [nextRunDate, setNextRunDate] = useState(initial?.next_run_date ?? "");
+  // Fields a template picked up when it was saved from a listing (migration
+  // 060). They are editable here so a template stays a living setup rather
+  // than a snapshot the club has to re-save from the dashboard to change.
+  const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
+  const [causeName, setCauseName] = useState(initial?.cause_name ?? "");
+  const [causePercent, setCausePercent] = useState(
+    initial?.cause_percent != null ? String(initial.cause_percent) : "",
+  );
+  const [goalAmount, setGoalAmount] = useState(
+    initial?.goal_amount != null ? String(initial.goal_amount) : "",
+  );
+  const [goalPublic, setGoalPublic] = useState(initial?.goal_public ?? false);
+  const [recommenderEnabled, setRecommenderEnabled] = useState(initial?.recommender_enabled ?? false);
+  const [sameDayEnabled, setSameDayEnabled] = useState(initial?.same_day_enabled ?? false);
+  const [durationHours, setDurationHours] = useState(
+    initial?.duration_hours != null ? String(initial.duration_hours) : "6",
+  );
+  // Pickup shape is set by "Save as template" on the listing form, where the
+  // full editor lives. Here it is shown and can be cleared, which is the one
+  // change that makes sense without rebuilding the whole spot/date tree.
+  const [pickupConfig, setPickupConfig] = useState(initial?.pickup_config ?? []);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -89,6 +111,15 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
       next_run_date: mode === "auto" ? nextRunDate || null : null,
       // Auto-recurring stays off until the club explicitly activates it.
       auto_active: initial?.auto_active ?? false,
+      contact_email: contactEmail.trim() || null,
+      cause_name: causeName.trim() || null,
+      cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) || null : null,
+      goal_amount: goalAmount.trim() ? Math.round(Number.parseFloat(goalAmount) * 100) / 100 : null,
+      goal_public: goalPublic,
+      recommender_enabled: recommenderEnabled,
+      same_day_enabled: sameDayEnabled,
+      duration_hours: Number.parseInt(durationHours, 10) || null,
+      pickup_config: pickupConfig,
     };
     const { error } = initial
       ? await supabase.from("recurring_templates").update(payload).eq("id", initial.id)
@@ -226,6 +257,131 @@ function TemplateForm({ clubId, initial, onSaved, onCancel }: TemplateFormProps)
         </div>
       )}
 
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="template-contact">Contact email (optional)</Label>
+          <Input
+            id="template-contact"
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            placeholder="Leave blank to use your account setting"
+          />
+        </div>
+        <div>
+          <Label htmlFor="template-duration">Drop runs for (hours)</Label>
+          <Input
+            id="template-duration"
+            value={durationHours}
+            onChange={(e) => setDurationHours(e.target.value.replace(/[^\d]/g, ""))}
+            inputMode="numeric"
+            className="font-mono"
+            placeholder="6"
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="template-cause">Cause (optional)</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="template-cause"
+              value={causeName}
+              onChange={(e) => setCauseName(e.target.value)}
+              placeholder="e.g. Ithaca Food Bank"
+            />
+            <Input
+              value={causePercent}
+              onChange={(e) => setCausePercent(e.target.value.replace(/[^\d]/g, ""))}
+              inputMode="numeric"
+              aria-label="Percent of earnings donated"
+              className="w-20 font-mono"
+              disabled={!causeName.trim()}
+              placeholder="50"
+            />
+            <span className="shrink-0 text-sm text-ink-muted">%</span>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="template-goal">Fundraising goal (optional)</Label>
+          <Input
+            id="template-goal"
+            value={goalAmount}
+            onChange={(e) => setGoalAmount(e.target.value.replace(/[^\d.]/g, ""))}
+            inputMode="decimal"
+            className="font-mono"
+            placeholder="800"
+          />
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={goalPublic}
+              onChange={(e) => setGoalPublic(e.target.checked)}
+              disabled={!goalAmount.trim()}
+              className="size-4 accent-(--color-primary-dark) disabled:opacity-50"
+            />
+            Show the progress bar to students
+          </label>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-2.5">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={recommenderEnabled}
+            onChange={(e) => setRecommenderEnabled(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
+          />
+          <span className="text-sm">Ask "which member recommended you?" on the order form</span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={sameDayEnabled}
+            onChange={(e) => setSameDayEnabled(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
+          />
+          <span className="text-sm">Sell at the table on the day (same-day stock)</span>
+        </label>
+      </div>
+
+      {pickupConfig.length > 0 && (
+        <div className="mt-5 rounded-xl border border-border/70 bg-surface p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+            Saved pickup setup
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {pickupConfig.map((spot, index) => (
+              <li key={`${spot.location_id}-${index}`} className="text-xs text-ink-muted">
+                {(spot.windows ?? []).length} {(spot.windows ?? []).length === 1 ? "date" : "dates"}
+                {" at one spot: "}
+                {(spot.windows ?? [])
+                  .map(
+                    (window) =>
+                      `day ${window.day_offset + 1}, ${formatMinutes(window.start_minutes)} to ${formatMinutes(window.end_minutes)}`,
+                  )
+                  .join("; ")}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-ink-muted">
+            Spots and dates are set by "Save as template" on the listing form, where the full
+            editor lives. Posting from this template asks for the first pickup day.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-1.5 text-ink-muted"
+            onClick={() => setPickupConfig([])}
+          >
+            Clear saved pickup
+          </Button>
+        </div>
+      )}
+
       <div className="mt-6 flex items-center justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
@@ -252,9 +408,21 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
   const [brand, setBrand] = useState(template.brand);
   const [description, setDescription] = useState(template.description ?? "");
   const [items, setItems] = useState<ItemDraft[]>(toItemDrafts(template.items));
-  const [expiresAt, setExpiresAt] = useState(toDatetimeLocal(new Date(Date.now() + 6 * 3_600_000)));
+  const [expiresAt, setExpiresAt] = useState(
+    toDatetimeLocal(new Date(Date.now() + (template.duration_hours ?? 6) * 3_600_000)),
+  );
   const [locationId, setLocationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // A template saved from a listing carries its pickup SHAPE, not dates
+  // (migration 060). The club names the first pickup day here and the shape is
+  // rebuilt against it, so a template made in June still posts June-relative
+  // pickups in October rather than resurrecting June's calendar.
+  const pickupConfig = template.pickup_config ?? [];
+  const [firstPickupDate, setFirstPickupDate] = useState(() => {
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`;
+  });
 
   // Same publish gate as the dashboard form: global brands plus this club's
   // one-time approvals. Unapproved brands are held instead of silently posted
@@ -267,6 +435,100 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
     brandOptions.some((option) => option.toLowerCase() === trimmedBrand.toLowerCase()) ||
     brandInList(trimmedBrand, approvedForClub);
 
+  /**
+   * Turn the template's pickup shape into real rows on the new listing.
+   *
+   * Offsets become dates against `firstPickupDate`, and minutes-past-midnight
+   * become local times. Windows that ration pickup materialise their slots
+   * exactly as the listing form does, so a template that had 20-minute slots
+   * posts with 20-minute slots and not an empty schedule.
+   */
+  const rebuildPickup = async (listingId: string): Promise<string | null> => {
+    for (const spot of pickupConfig) {
+      const { data: spotRow, error: spotError } = await supabase
+        .from("listing_pickup_spots")
+        .insert({
+          listing_id: listingId,
+          location_id: spot.location_id,
+          order_type: spot.order_type,
+        })
+        .select("id")
+        .single();
+      if (spotError || !spotRow) return spotError?.message ?? "Could not create a pickup spot";
+
+      for (const window of spot.windows ?? []) {
+        const day = new Date(`${firstPickupDate}T12:00:00`);
+        day.setDate(day.getDate() + window.day_offset);
+        const pad = (value: number) => String(value).padStart(2, "0");
+        const dateOnly = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+        const at = (minutes: number) =>
+          new Date(
+            `${dateOnly}T${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`,
+          ).toISOString();
+        const startIso = at(window.start_minutes);
+        const endIso = at(window.end_minutes);
+
+        const { data: windowRow, error: windowError } = await supabase
+          .from("listing_pickup_windows")
+          .insert({
+            listing_id: listingId,
+            spot_id: spotRow.id,
+            start_time: startIso,
+            end_time: endIso,
+            slot_mode: window.slot_mode,
+            capacity: window.slot_mode === "capacity" ? window.capacity : null,
+            split_minutes: window.slot_mode === "split" ? window.split_minutes : null,
+            note: window.note,
+          })
+          .select("id")
+          .single();
+        if (windowError || !windowRow) return windowError?.message ?? "Could not create a pickup date";
+
+        if (window.slot_mode === "capacity" && window.capacity) {
+          const { error } = await supabase.from("pickup_slots").insert({
+            listing_id: listingId,
+            window_id: windowRow.id,
+            start_time: startIso,
+            end_time: endIso,
+            max_reservations: window.capacity,
+            location_id: spot.location_id,
+          });
+          if (error) return error.message;
+        }
+        if (window.slot_mode === "split" && window.split_minutes) {
+          const pieces = splitWindow(window.start_minutes, window.end_minutes, window.split_minutes);
+          const { error } = await supabase.from("pickup_slots").insert(
+            pieces.map((piece) => ({
+              listing_id: listingId,
+              window_id: windowRow.id,
+              start_time: at(piece.startMinutes),
+              end_time: at(piece.endMinutes),
+              // The template records the interval, not each slot's capacity.
+              // 10 is the listing form's own default, and the club edits the
+              // drop if it wants different numbers.
+              max_reservations: 10,
+              location_id: spot.location_id,
+            })),
+          );
+          if (error) return error.message;
+        }
+      }
+
+      if (template.same_day_enabled && (spot.same_day_stock ?? []).length > 0) {
+        const { error } = await supabase.from("listing_same_day_stock").insert(
+          spot.same_day_stock.map((row) => ({
+            listing_id: listingId,
+            spot_id: spotRow.id,
+            item_name: row.item_name,
+            quantity: row.quantity,
+          })),
+        );
+        if (error) return error.message;
+      }
+    }
+    return null;
+  };
+
   const post = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim() || !brand.trim() || parseItemDrafts(items).length === 0) {
@@ -278,21 +540,48 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from("listings").insert({
-      club_id: template.club_id,
-      brand: brand.trim(),
-      title: title.trim(),
-      description: description.trim() || null,
-      items: parseItemDrafts(items),
-      pickup_location_id: locationId || null,
-      expires_at: new Date(expiresAt).toISOString(),
-      active: isPostable,
-      draft: !isPostable,
-    });
-    if (error) {
+    const { data: created, error } = await supabase
+      .from("listings")
+      .insert({
+        club_id: template.club_id,
+        brand: brand.trim(),
+        title: title.trim(),
+        description: description.trim() || null,
+        items: parseItemDrafts(items),
+        pickup_location_id: locationId || pickupConfig[0]?.location_id || null,
+        contact_email: template.contact_email,
+        recommender_enabled: template.recommender_enabled,
+        same_day_enabled: template.same_day_enabled,
+        cause_name: template.cause_name,
+        cause_percent: template.cause_percent,
+        expires_at: new Date(expiresAt).toISOString(),
+        active: isPostable,
+        draft: !isPostable,
+      })
+      .select("id")
+      .single();
+    if (error || !created) {
       setSubmitting(false);
-      toast.error(error.message);
+      toast.error(error?.message ?? "Could not create the listing");
       return;
+    }
+    const pickupError = await rebuildPickup(created.id);
+    if (pickupError) {
+      setSubmitting(false);
+      toast.error(`Drop created, but its pickup dates failed: ${pickupError}`);
+      onPosted();
+      return;
+    }
+    if (template.goal_amount != null) {
+      await supabase.from("listing_goals").upsert(
+        {
+          listing_id: created.id,
+          goal_amount: template.goal_amount,
+          goal_public: template.goal_public,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "listing_id" },
+      );
     }
     if (!isPostable) {
       await supabase.rpc("request_brand", { p_name: brand.trim() }).then(
@@ -361,16 +650,60 @@ function PostPanel({ template, locations, onPosted, onCancel }: PostPanelProps) 
           />
         </div>
         <div>
-          <Label htmlFor="post-location">Pickup location (optional)</Label>
-          <LocationCombobox
-            id="post-location"
-            locationId={locationId}
-            locations={locations}
-            onChange={setLocationId}
-            placeholder="No map pin"
-          />
+          {pickupConfig.length > 0 ? (
+            <>
+              <Label htmlFor="post-first-day">First pickup day</Label>
+              <DateTimeField
+                id="post-first-day"
+                type="date"
+                value={firstPickupDate}
+                onChange={(e) => setFirstPickupDate(e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <Label htmlFor="post-location">Pickup location (optional)</Label>
+              <LocationCombobox
+                id="post-location"
+                locationId={locationId}
+                locations={locations}
+                onChange={setLocationId}
+                placeholder="No map pin"
+              />
+            </>
+          )}
         </div>
       </div>
+
+      {pickupConfig.length > 0 && (
+        <div className="mt-4 rounded-xl border border-border/70 bg-surface p-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+            Pickup from this template
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {pickupConfig.map((spot, spotIndex) => {
+              const name =
+                locations.find((location) => location.id === spot.location_id)?.name ??
+                "A pickup spot";
+              return (
+                <li key={`${spot.location_id}-${spotIndex}`} className="text-xs text-ink-muted">
+                  <span className="font-semibold text-ink">{name}</span>
+                  {": "}
+                  {(spot.windows ?? [])
+                    .map(
+                      (window) =>
+                        `day ${window.day_offset + 1}, ${formatMinutes(window.start_minutes)} to ${formatMinutes(window.end_minutes)}`,
+                    )
+                    .join("; ") || "no dates saved"}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-ink-muted">
+            Day 1 is the date above. You can change any of it on the drop once it is posted.
+          </p>
+        </div>
+      )}
       {trimmedBrand.length >= 2 && !isPostable && (
         <p className="mt-4 rounded-xl bg-primary/15 p-3 text-xs text-ink">
           "{trimmedBrand}" isn't approved yet, so this saves as a draft on your dashboard and files

@@ -466,6 +466,10 @@ function ClubAccount({ club }: { club: Club }) {
   const [memberOptions, setMemberOptions] = useState<string[]>(club.member_options ?? []);
   const [newMember, setNewMember] = useState("");
   const [savingMembers, setSavingMembers] = useState(false);
+  // Default "email us about a listing" address (migration 060). Before this,
+  // the listing form asked for it fresh on every single drop.
+  const [contactEmail, setContactEmail] = useState(club.listing_contact_email ?? "");
+  const [savingContact, setSavingContact] = useState(false);
 
   const persistMembers = async (next: string[]) => {
     setSavingMembers(true);
@@ -508,6 +512,28 @@ function ClubAccount({ club }: { club: Club }) {
     }
     await refetchClub();
     toast.success("Club name updated everywhere.");
+  };
+
+  const saveContactEmail = async () => {
+    const value = contactEmail.trim();
+    if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      toast.error("Enter a valid email address, or leave it blank.");
+      return;
+    }
+    setSavingContact(true);
+    const { error } = await supabase
+      .from("clubs")
+      .update({ listing_contact_email: value || null })
+      .eq("id", club.id);
+    setSavingContact(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await refetchClub();
+    toast.success(
+      value ? "New listings will use this address." : `New listings will use ${club.email}.`,
+    );
   };
 
   // Upload a logo to the club-logos bucket and store its public URL (#14).
@@ -710,6 +736,33 @@ function ClubAccount({ club }: { club: Club }) {
         </div>
         <p className="mt-1.5 text-xs text-ink-muted">
           Shown on all your listings. Email ({club.email}) can't be changed.
+        </p>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-4">
+        <Label htmlFor="club-contact-email">Contact email for listing questions</Label>
+        <div className="mt-1 flex gap-2">
+          <Input
+            id="club-contact-email"
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            placeholder={club.email}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            loading={savingContact}
+            disabled={contactEmail.trim() === (club.listing_contact_email ?? "")}
+            onClick={() => void saveContactEmail()}
+          >
+            Save
+          </Button>
+        </div>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Filled in for you on every new drop, and shown to buyers who have a question about one.
+          You can still change it on an individual listing. Leave it blank to use {club.email}.
         </p>
       </div>
 

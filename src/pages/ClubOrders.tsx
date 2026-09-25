@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { orderItemsSummary, summarizeDropDemand, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, MEMBER_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
 import { buildOrdersCsv } from "@/lib/orderCsv";
+import { SameDayTable } from "@/components/SameDayTable";
 import { formatPrice } from "@/lib/format";
 import { DropPurchaseList } from "@/components/DropPurchaseList";
 import { QRScanner } from "@/components/QRScanner";
@@ -16,10 +17,19 @@ import { AnchoredPanel } from "@/components/ui/anchored-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { GroupDetails, Order, OrderQRCode } from "@/types/database";
+import type { ClubOrderPickup, GroupDetails, ListingItem, Order, OrderQRCode } from "@/types/database";
 
 type OrderRow = Order & { order_qr_codes: OrderQRCode[] };
-type ListingLite = { id: string; title: string; brand: string };
+type ListingLite = {
+  id: string;
+  title: string;
+  brand: string;
+  /** Needed for the pickup-day table: prices and the same-day switch (060). */
+  items: ListingItem[];
+  same_day_enabled: boolean;
+  active: boolean;
+  expires_at: string;
+};
 
 type StatusFilter = "all" | "pending_payment" | "qr_sent" | "picked_up";
 
@@ -368,7 +378,7 @@ export default function ClubOrders() {
     if (!userId) return;
     const { data: ownListings, error: listingsError } = await supabase
       .from("listings")
-      .select("id, title, brand")
+      .select("id, title, brand, items, same_day_enabled, active, expires_at")
       .eq("club_id", userId)
       .order("created_at", { ascending: false });
     if (listingsError) {
@@ -474,7 +484,17 @@ export default function ClubOrders() {
         groups.filter((group) => group.listing_id === listing.id),
       ),
     }))
-    .filter((section) => section.sectionOrders.length > 0 || section.sectionGroups.length > 0);
+    // A drop selling at the table keeps its section even with no orders yet:
+    // the pickup-day counter is the reason the club has this page open, and
+    // hiding it until the first sale is exactly backwards.
+    .filter(
+      (section) =>
+        section.sectionOrders.length > 0 ||
+        section.sectionGroups.length > 0 ||
+        (section.listing.same_day_enabled &&
+          section.listing.active &&
+          new Date(section.listing.expires_at).getTime() > Date.now()),
+    );
 
   if (authLoading) {
     return (
@@ -606,12 +626,26 @@ export default function ClubOrders() {
   // Export is scoped by the club's explicit choice: one fundraiser or all of
   // them. It always includes every status, and every split share, so the sheet
   // reconciles cleanly. See lib/orderCsv for the row model.
-  const exportCsv = (scopeListingId: string | null) => {
+  const exportCsv = async (scopeListingId: string | null) => {
     const listingTitle = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
+    // Pickup context is fetched at export time rather than held in state: it
+    // is three joins the club only needs when it is about to email people,
+    // and it is the freshest thing in the sheet if someone rebooked a slot a
+    // minute ago.
+    const scopeIds = scopeListingId ? [scopeListingId] : listings.map((listing) => listing.id);
+    const { data: pickupData, error: pickupError } = await supabase.rpc("get_club_order_pickup", {
+      p_listing_ids: scopeIds,
+    });
+    if (pickupError) {
+      // Never block the export on it: a sheet without the pickup columns is
+      // still the sheet the club asked for.
+      toast.error("Pickup details could not be loaded; exporting without them.");
+    }
     const { csv, peopleCount, splitShareCount } = buildOrdersCsv({
       listings,
       orders,
       groups,
+      pickup: (pickupData as unknown as ClubOrderPickup[]) ?? [],
       scopeListingId,
     });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -687,7 +721,7 @@ export default function ClubOrders() {
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => exportCsv(null)}
+                onClick={() => void exportCsv(null)}
                 className="flex min-h-11 w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-semibold hover-fine:bg-ink/[0.04]"
               >
                 All fundraisers
@@ -702,7 +736,7 @@ export default function ClubOrders() {
                     key={listing.id}
                     type="button"
                     role="menuitem"
-                    onClick={() => exportCsv(listing.id)}
+                    onClick={() => void exportCsv(listing.id)}
                     className="flex min-h-11 w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover-fine:bg-ink/[0.04]"
                   >
                     <span className="min-w-0 truncate">{listing.title}</span>
@@ -898,6 +932,13 @@ export default function ClubOrders() {
                         </div>
                       );
                     })()}
+                    {listing.same_day_enabled && (
+                      <SameDayTable
+                        listingId={listing.id}
+                        items={listing.items ?? []}
+                        onSold={() => void refetch()}
+                      />
+                    )}
                     {sectionOrders.map((order) => (
                       <OrderCard
                         key={order.id}

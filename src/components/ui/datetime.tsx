@@ -1,10 +1,10 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
-import { Calendar, CalendarClock } from "lucide-react";
+import { Calendar, CalendarClock, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface DateTimeFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   invalid?: boolean;
-  type?: "datetime-local" | "date";
+  type?: "datetime-local" | "date" | "time";
 }
 
 /**
@@ -18,7 +18,7 @@ export interface DateTimeFieldProps extends InputHTMLAttributes<HTMLInputElement
  */
 export const DateTimeField = forwardRef<HTMLInputElement, DateTimeFieldProps>(
   ({ className, invalid = false, type = "datetime-local", ...props }, ref) => {
-    const Icon = type === "date" ? Calendar : CalendarClock;
+    const Icon = type === "date" ? Calendar : type === "time" ? Clock : CalendarClock;
     return (
       <div className="relative w-full">
         <input

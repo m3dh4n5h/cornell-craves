@@ -21,7 +21,7 @@ import { useClub } from "@/hooks/useClub";
 import { trackListingView } from "@/lib/analytics";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { listingDietaryTags } from "@/lib/dietary";
-import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT, spotHoursText } from "@/lib/pickup";
+import { ORDER_TYPE_BADGE, ORDER_TYPE_SHORT, formatWindowRange, spotHoursText } from "@/lib/pickup";
 import { formatPrice } from "@/lib/format";
 import { itemRemaining, listingSoldOut } from "@/lib/stock";
 import { VenmoButton } from "@/components/VenmoButton";
@@ -343,26 +343,55 @@ export default function ListingDetail() {
           )}
 
           {pickupSpots.length > 0 ? (
-            <div className="mt-4 flex flex-col gap-2">
-              {pickupSpots.map((spot) => (
-                <div key={spot.id} className="flex flex-wrap items-center gap-2">
-                  <Link
-                    to="/map"
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
-                  >
-                    <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
-                    {spot.campus_locations?.name ?? "Pickup spot"}
-                    <Badge variant={ORDER_TYPE_BADGE[spot.order_type]}>
-                      {ORDER_TYPE_SHORT[spot.order_type]}
-                    </Badge>
-                  </Link>
-                  {spotHoursText(spot) && (
-                    <span className="whitespace-pre-wrap text-xs text-ink-muted">
-                      {spotHoursText(spot)}
-                    </span>
-                  )}
-                </div>
-              ))}
+            <div className="mt-4 flex flex-col gap-2.5">
+              {pickupSpots.map((spot) => {
+                // Dates the club entered for this spot (migration 060). Older
+                // drops have none and fall back to the single availability
+                // window they were created with, so nothing published before
+                // this change loses its pickup timing.
+                const windows = [...(spot.listing_pickup_windows ?? [])].sort(
+                  (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+                );
+                const legacyHours = windows.length === 0 ? spotHoursText(spot) : "";
+                return (
+                  <div key={spot.id} className="flex flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        to="/map"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover-fine:border-primary hover-fine:text-ink"
+                      >
+                        <MapPinned className="size-3.5 text-primary-dark" aria-hidden="true" />
+                        {spot.campus_locations?.name ?? "Pickup spot"}
+                        <Badge variant={ORDER_TYPE_BADGE[spot.order_type]}>
+                          {ORDER_TYPE_SHORT[spot.order_type]}
+                        </Badge>
+                      </Link>
+                      {legacyHours && (
+                        <span className="whitespace-pre-wrap text-xs text-ink-muted">
+                          {legacyHours}
+                        </span>
+                      )}
+                    </div>
+                    {windows.length > 0 && (
+                      <ul className="ml-1 flex flex-col gap-1 border-l-2 border-border/70 pl-3">
+                        {windows.map((window) => (
+                          <li key={window.id} className="text-xs text-ink-muted">
+                            <span className="font-semibold text-ink">
+                              {formatWindowRange(window.start_time, window.end_time)}
+                            </span>
+                            {window.slot_mode !== "open" && (
+                              <span className="ml-1.5">
+                                · {window.slot_mode === "capacity" ? "limited spots, book below" : "book a time below"}
+                              </span>
+                            )}
+                            {window.note && <span className="ml-1.5">· {window.note}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             listing.campus_locations && (

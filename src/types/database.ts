@@ -37,6 +37,12 @@ export type Club = {
   split_ack_version?: string | null;
   logo_url: string | null;
   member_options: string[];
+  /**
+   * Default "email us about a listing" address (migration 060). The listing
+   * form prefills it; a listing may still override it. Null falls back to
+   * `email`, the club's login address.
+   */
+  listing_contact_email: string | null;
   created_at: string;
 };
 
@@ -54,6 +60,12 @@ export type CampusLocation = {
   pickup_type: PickupType;
   /** Club that added this spot, or null for the curated list (Tranche 4 #4). */
   created_by: string | null;
+  /**
+   * Set when the owning club removed its own custom spot (migration 060).
+   * Archived spots leave the picker but still resolve on past listings,
+   * orders, map pins and calendar entries. Curated spots are never archived.
+   */
+  archived_at: string | null;
   created_at: string;
 };
 
@@ -76,6 +88,68 @@ export type ListingPickupSpotWithLocation = ListingPickupSpot & {
     CampusLocation,
     "id" | "name" | "latitude" | "longitude" | "description"
   > | null;
+  /** This spot's pickup dates and times (migration 060). */
+  listing_pickup_windows?: PickupWindow[];
+};
+
+/**
+ * How a pickup window is rationed (migration 060).
+ *
+ *  open      turn up any time in the window, nothing to book
+ *  capacity  N people total across the whole window, one bookable slot
+ *  split     the window is cut into timed slots students book individually
+ */
+export type SlotMode = "open" | "capacity" | "split";
+
+/** The intervals the form offers for splitting a window automatically. */
+export const SPLIT_INTERVALS = [15, 20, 30, 45, 60] as const;
+export type SplitInterval = (typeof SPLIT_INTERVALS)[number];
+
+/** One pickup date at one spot: a from-time, a to-time and how it is rationed. */
+export type PickupWindow = {
+  id: string;
+  listing_id: string;
+  spot_id: string;
+  start_time: string;
+  end_time: string;
+  slot_mode: SlotMode;
+  /** 'capacity' only: people who may book across the window. */
+  capacity: number | null;
+  /** 'split' only, and only when generated: the interval used. */
+  split_minutes: SplitInterval | null;
+  note: string | null;
+  created_at: string;
+};
+
+/** A window as the order/group payloads return it, with booking counts. */
+export type PickupWindowSummary = Pick<
+  PickupWindow,
+  "id" | "start_time" | "end_time" | "slot_mode" | "capacity" | "split_minutes" | "note"
+> & {
+  slots_total: number;
+  slots_taken: number;
+};
+
+/** Pickup context per order for the club's CSV (migration 060). */
+export type ClubOrderPickup = {
+  order_id: string;
+  spot_name: string | null;
+  spot_order_type: OrderType | null;
+  reserved_start: string | null;
+  reserved_end: string | null;
+  reserved_location: string | null;
+  reserved_quantity: number | null;
+};
+
+/** Same-day units at one table, from the same_day_stock RPC (migration 060). */
+export type SameDayStock = {
+  listing_id: string;
+  spot_id: string;
+  location_name: string;
+  item_name: string;
+  quantity: number;
+  sold: number;
+  remaining: number;
 };
 
 /** Approved-global brand additions, merged with the static list (Batch 2 #17). */
@@ -220,6 +294,12 @@ export type Listing = {
   pickup_location_id: string | null;
   contact_email: string | null;
   recommender_enabled: boolean;
+  /**
+   * The club is tracking a physical pile for selling at the table on the day
+   * (migration 060). Separate from a spot's order_type, which says which
+   * tables accept walk-ups at all.
+   */
+  same_day_enabled: boolean;
   cause_name: string | null;
   cause_percent: number | null;
   /** Club fundraising target in dollars, independent of the cause (055, 059). */
@@ -324,6 +404,8 @@ export type PickupSlot = {
   reserved_count: number;
   /** Per-slot pickup location (build spec 5 #5), null = use the listing's spots. */
   location_id: string | null;
+  /** The window this slot came from (migration 060). Null on pre-060 slots. */
+  window_id: string | null;
   created_at: string;
 };
 
@@ -377,6 +459,29 @@ export type QAHelpfulVote = {
 
 export type TemplateMode = "one_time" | "auto";
 
+/**
+ * Pickup saved on a template as a SHAPE rather than as dates (migration 060).
+ * `day_offset` counts days from the first pickup day chosen when posting, and
+ * the minute fields are minutes past local midnight, so a template reused
+ * three weeks later produces three-weeks-later dates instead of stale ones.
+ */
+export type TemplateWindow = {
+  day_offset: number;
+  start_minutes: number;
+  end_minutes: number;
+  slot_mode: SlotMode;
+  capacity: number | null;
+  split_minutes: SplitInterval | null;
+  note: string | null;
+};
+
+export type TemplateSpot = {
+  location_id: string;
+  order_type: OrderType;
+  windows: TemplateWindow[];
+  same_day_stock: { item_name: string; quantity: number }[];
+};
+
 export type RecurringTemplate = {
   id: string;
   club_id: string;
@@ -389,6 +494,17 @@ export type RecurringTemplate = {
   is_active: boolean;
   mode: TemplateMode;
   auto_active: boolean;
+  /** The rest of a listing, saved by "Save as template" (migration 060). */
+  contact_email: string | null;
+  cause_name: string | null;
+  cause_percent: number | null;
+  goal_amount: number | null;
+  goal_public: boolean;
+  recommender_enabled: boolean;
+  same_day_enabled: boolean;
+  /** How long the drop runs from the moment it is posted. */
+  duration_hours: number | null;
+  pickup_config: TemplateSpot[];
   created_at: string;
 };
 
@@ -436,12 +552,25 @@ export type PaymentMethod = "venmo" | "zelle" | "both";
  * purposes since there is no real time to put on the event.
  */
 export type OrderPickupSpot = {
+  /** Present from migration 060; absent on payloads built before it. */
+  id?: string;
   order_type: OrderType;
   available_start: string | null;
   available_end: string | null;
   location_name: string;
   latitude: number;
   longitude: number;
+  /** The club's real pickup dates at this spot (migration 060). */
+  windows?: PickupWindowSummary[];
+};
+
+/** A slot this buyer actually booked, from get_my_orders (migration 060). */
+export type OrderReservation = {
+  slot_id: string;
+  start_time: string;
+  end_time: string;
+  quantity: number;
+  location_name: string | null;
 };
 
 export type OrderStatus = "pending_payment" | "qr_sent" | "picked_up" | "cancelled";
@@ -466,6 +595,16 @@ export type Order = {
   picked_up_by_email: string | null;
   picked_up_at: string | null;
   recommended_by: string | null;
+  /**
+   * Recorded by the club at the table on pickup day (migration 060). Already
+   * paid and already handed over, so it is created verified and picked_up, and
+   * it draws on the spot's same-day pile rather than the pre-order stock cap.
+   */
+  walk_up: boolean;
+  /** The buyer's own address, when they gave one, for a receipt. */
+  walk_up_email: string | null;
+  /** Which of the listing's spots this was collected at. */
+  pickup_spot_id: string | null;
   created_at: string;
 };
 
@@ -491,6 +630,8 @@ export type MyOrder = Order & {
   expires_at: string;
   club_name: string | null;
   contact_email: string | null;
+  /** Slots this buyer reserved on this drop (migration 060). */
+  my_reservations?: OrderReservation[];
   qr_codes: OrderQRCode[];
   /** The listing's own pickup spots, with fixed timing where the club set it (migration 057). */
   pickup_spots?: OrderPickupSpot[];
@@ -652,6 +793,7 @@ type ClubInsert = {
   groups_enabled?: boolean;
   logo_url?: string | null;
   member_options?: string[];
+  listing_contact_email?: string | null;
   created_at?: string;
 };
 
@@ -682,6 +824,7 @@ type ListingInsert = {
   pickup_location_id?: string | null;
   contact_email?: string | null;
   recommender_enabled?: boolean;
+  same_day_enabled?: boolean;
   cause_name?: string | null;
   cause_percent?: number | null;
   draft?: boolean;
@@ -717,6 +860,7 @@ type PickupSlotInsert = {
   max_reservations: number;
   reserved_count?: number;
   location_id?: string | null;
+  window_id?: string | null;
   created_at?: string;
 };
 
@@ -729,6 +873,28 @@ type ListingPickupSpotInsert = {
   available_end?: string | null;
   hours_note?: string | null;
   created_at?: string;
+};
+
+type PickupWindowInsert = {
+  id?: string;
+  listing_id: string;
+  spot_id: string;
+  start_time: string;
+  end_time: string;
+  slot_mode?: SlotMode;
+  capacity?: number | null;
+  split_minutes?: SplitInterval | null;
+  note?: string | null;
+  created_at?: string;
+};
+
+type SameDayStockInsert = {
+  id?: string;
+  listing_id: string;
+  spot_id: string;
+  item_name: string;
+  quantity?: number;
+  updated_at?: string;
 };
 
 type ReservationInsert = {
@@ -781,6 +947,15 @@ type RecurringTemplateInsert = {
   is_active?: boolean;
   mode?: TemplateMode;
   auto_active?: boolean;
+  contact_email?: string | null;
+  cause_name?: string | null;
+  cause_percent?: number | null;
+  goal_amount?: number | null;
+  goal_public?: boolean;
+  recommender_enabled?: boolean;
+  same_day_enabled?: boolean;
+  duration_hours?: number | null;
+  pickup_config?: TemplateSpot[];
   created_at?: string;
 };
 
@@ -792,6 +967,7 @@ type CampusLocationInsert = {
   description?: string | null;
   pickup_type?: PickupType;
   created_by?: string | null;
+  archived_at?: string | null;
   created_at?: string;
 };
 
@@ -878,6 +1054,9 @@ type OrderInsert = {
   picked_up_by_email?: string | null;
   picked_up_at?: string | null;
   recommended_by?: string | null;
+  walk_up?: boolean;
+  walk_up_email?: string | null;
+  pickup_spot_id?: string | null;
   created_at?: string;
 };
 
@@ -1003,6 +1182,48 @@ export type Database = {
             columns: ["location_id"];
             isOneToOne: false;
             referencedRelation: "campus_locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      listing_pickup_windows: {
+        Row: PickupWindow;
+        Insert: PickupWindowInsert;
+        Update: Partial<PickupWindowInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "listing_pickup_windows_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "listing_pickup_windows_spot_id_fkey";
+            columns: ["spot_id"];
+            isOneToOne: false;
+            referencedRelation: "listing_pickup_spots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      listing_same_day_stock: {
+        Row: SameDayStock & { id: string };
+        Insert: SameDayStockInsert;
+        Update: Partial<SameDayStockInsert>;
+        Relationships: [
+          {
+            foreignKeyName: "listing_same_day_stock_listing_id_fkey";
+            columns: ["listing_id"];
+            isOneToOne: false;
+            referencedRelation: "listings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "listing_same_day_stock_spot_id_fkey";
+            columns: ["spot_id"];
+            isOneToOne: false;
+            referencedRelation: "listing_pickup_spots";
             referencedColumns: ["id"];
           },
         ];
@@ -1244,6 +1465,33 @@ export type Database = {
       add_campus_location: {
         Args: { p_name: string; p_lat: number; p_lng: number; p_description?: string | null };
         Returns: CampusLocation;
+      };
+      archive_campus_location: {
+        Args: { p_location_id: string };
+        Returns: { ok: boolean; already_archived?: boolean; blocking_listings?: { id: string; title: string; expires_at: string }[] };
+      };
+      restore_campus_location: {
+        Args: { p_location_id: string };
+        Returns: undefined;
+      };
+      same_day_stock: {
+        Args: { p_listing_ids: string[] };
+        Returns: SameDayStock[];
+      };
+      record_walk_up_sale: {
+        Args: {
+          p_listing_id: string;
+          p_spot_id: string;
+          p_items: { name: string; qty: number }[];
+          p_buyer_name?: string | null;
+          p_buyer_email?: string | null;
+          p_payment_method?: string;
+        };
+        Returns: string;
+      };
+      get_club_order_pickup: {
+        Args: { p_listing_ids: string[] };
+        Returns: ClubOrderPickup[];
       };
       is_brand_approved: {
         Args: { p_brand: string };

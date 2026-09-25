@@ -12,11 +12,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatWindowRange } from "@/lib/pickup";
 import { cn } from "@/lib/utils";
 import type { ListingWithClub, PickupSlot } from "@/types/database";
 
 /** A slot with its per-day pickup location embedded (build spec 5 #5). */
 type SlotRow = PickupSlot & { campus_locations: { name: string } | null };
+
+/** A window the club left open: students just turn up, nothing to book. */
+type OpenWindow = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  note: string | null;
+  location_name: string | null;
+};
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -49,6 +59,8 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
   const { user, isGoogleUser } = useAuth();
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openWindows, setOpenWindows] = useState<OpenWindow[]>([]);
+  const [selectedSpot, setSelectedSpot] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
@@ -85,6 +97,34 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
     } else {
       setSlots(data ?? []);
     }
+
+    // Windows the club marked "open" produce no slots by design, so a student
+    // looking only at bookable times would never learn about them. They are
+    // listed above the picker as "just turn up", which is the whole point of
+    // that mode.
+    const { data: windowData } = await supabase
+      .from("listing_pickup_windows")
+      .select("id, start_time, end_time, note, listing_pickup_spots(campus_locations(name))")
+      .eq("listing_id", listing.id)
+      .eq("slot_mode", "open")
+      .gt("end_time", new Date().toISOString())
+      .order("start_time", { ascending: true });
+    setOpenWindows(
+      (windowData ?? []).map((row) => {
+        const spot = row.listing_pickup_spots as
+          | { campus_locations: { name: string } | null }
+          | { campus_locations: { name: string } | null }[]
+          | null;
+        const one = Array.isArray(spot) ? spot[0] : spot;
+        return {
+          id: row.id,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          note: row.note,
+          location_name: one?.campus_locations?.name ?? null,
+        };
+      }),
+    );
     setLoading(false);
   }, [listing.id]);
 
@@ -92,17 +132,36 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
     void refetch();
   }, [refetch]);
 
+  // Spot first, then day, then time. A drop can run several tables on the same
+  // day, so picking the day first would mix two buildings into one list of
+  // times and let a student book the wrong one without noticing.
+  const spotNames = useMemo(
+    () => [...new Set(slots.map((slot) => slot.campus_locations?.name).filter(Boolean))] as string[],
+    [slots],
+  );
+  const activeSpot = selectedSpot ?? spotNames[0] ?? null;
+  const spotSlots = useMemo(
+    () =>
+      spotNames.length > 1
+        ? slots.filter((slot) => (slot.campus_locations?.name ?? null) === activeSpot)
+        : slots,
+    [slots, spotNames.length, activeSpot],
+  );
+
   const days = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const slot of slots) {
+    for (const slot of spotSlots) {
       const key = dayKey(slot.start_time);
       if (!seen.has(key)) seen.set(key, slot.start_time);
     }
     return [...seen.entries()].map(([key, iso]) => ({ key, iso }));
-  }, [slots]);
+  }, [spotSlots]);
 
-  const activeDay = selectedDay ?? days[0]?.key ?? null;
-  const daySlots = slots.filter((slot) => dayKey(slot.start_time) === activeDay);
+  const activeDay =
+    selectedDay && days.some((day) => day.key === selectedDay)
+      ? selectedDay
+      : (days[0]?.key ?? null);
+  const daySlots = spotSlots.filter((slot) => dayKey(slot.start_time) === activeDay);
   const selectedSlot = slots.find((slot) => slot.id === selectedSlotId) ?? null;
 
   const nameError = name.trim().length >= 2 ? undefined : "Enter your name.";
@@ -167,11 +226,36 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
   }
 
   if (slots.length === 0) {
+    // Nothing to book is not the same as nothing to know. A drop whose windows
+    // are all "open" has real pickup times; they just need no reservation.
+    if (openWindows.length > 0) {
+      return (
+        <div className="rounded-2xl border border-border bg-surface-raised p-5">
+          <h3 className="text-base font-bold">No booking needed</h3>
+          <p className="mt-1.5 text-sm text-ink-muted">
+            Turn up any time during these windows and the club will have your order ready.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {openWindows.map((window) => (
+              <li key={window.id} className="rounded-xl border border-border/70 p-3">
+                <p className="text-sm font-bold">
+                  {formatWindowRange(window.start_time, window.end_time)}
+                </p>
+                {window.location_name && (
+                  <p className="text-xs text-ink-muted">{window.location_name}</p>
+                )}
+                {window.note && <p className="mt-1 text-xs text-ink-muted">{window.note}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
     return (
       <EmptyState
         icon={<CalendarX2 className="size-6" aria-hidden="true" />}
         title="No pickup scheduling for this drop"
-        body="This club has not set pickup slots. Check the pickup info on the listing and just show up."
+        body="This club has not set pickup slots. Check the pickup times on the listing and just show up."
       />
     );
   }
@@ -207,6 +291,57 @@ export function PickupCalendar({ listing }: PickupCalendarProps) {
 
   return (
     <div>
+      {openWindows.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-border bg-surface p-3.5">
+          <p className="text-sm font-bold">Some windows need no booking</p>
+          <ul className="mt-1.5 space-y-1">
+            {openWindows.map((window) => (
+              <li key={window.id} className="text-xs text-ink-muted">
+                <span className="font-semibold text-ink">
+                  {formatWindowRange(window.start_time, window.end_time)}
+                </span>
+                {window.location_name ? ` · ${window.location_name}` : ""}
+                {window.note ? ` · ${window.note}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {spotNames.length > 1 && (
+        <div className="mb-3" role="radiogroup" aria-label="Pickup spot">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
+            Pickup spot
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {spotNames.map((name) => {
+              const isActive = name === activeSpot;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  onClick={() => {
+                    setSelectedSpot(name);
+                    setSelectedDay(null);
+                    setSelectedSlotId(null);
+                  }}
+                  className={cn(
+                    "rounded-full border px-3.5 py-1.5 text-sm font-semibold transition-colors duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.97]",
+                    isActive
+                      ? "border-ink bg-ink text-surface-raised"
+                      : "border-border bg-surface-raised hover-fine:border-primary",
+                  )}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Inline day strip, no modal. */}
       <div
         className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

@@ -211,3 +211,113 @@ export function groupAgendaByDay(entries: PickupAgendaEntry[]): PickupAgendaDay[
 export function formatDayKeyShort(dayKey: string): string {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+// ===================== Pickup windows (migration 060) =====================
+//
+// A window is one date at one spot with a from-time and a to-time. It replaces
+// the old single available_start/available_end pair plus a free-text
+// "hours per day" note: a club running the same table Tuesday 11-2 and
+// Thursday 5-8 now says exactly that, twice, instead of describing it in prose.
+
+/** Minutes past local midnight for a datetime-local string (YYYY-MM-DDTHH:MM). */
+export function localMinutes(datetimeLocal: string): number {
+  const time = datetimeLocal.slice(11, 16);
+  const [hours, minutes] = time.split(":").map(Number);
+  return (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0);
+}
+
+/** "11:00 AM" from minutes past midnight. */
+export function formatMinutes(minutes: number): string {
+  const date = new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60);
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+/** "Tue, Jun 16" for a YYYY-MM-DD date string, with no UTC day shift. */
+export function formatDateLabel(dateOnly: string): string {
+  return new Date(`${dateOnly}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** "Tue, Jun 16 · 11:00 AM to 2:00 PM" for one window's real timestamps. */
+export function formatWindowRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const day = start.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const time = (date: Date) =>
+    date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${time(start)} to ${time(end)}`;
+}
+
+/** A generated sub-slot of a window: minutes past midnight, start inclusive. */
+export interface GeneratedSlot {
+  startMinutes: number;
+  endMinutes: number;
+  /** True for a final piece shorter than the chosen interval. */
+  remainder: boolean;
+}
+
+/**
+ * Cut a window into slots of `interval` minutes.
+ *
+ * A window that does not divide evenly keeps its short tail as a real slot
+ * rather than silently dropping it: a club that types 11:00-12:10 and picks
+ * 20 minutes meant to be open until 12:10, and quietly ending at 12:00 would
+ * strand whoever booked last. The tail is flagged `remainder` so the form can
+ * point it out, and the club can delete it or shorten the window if it was a
+ * typo rather than an intention.
+ */
+export function splitWindow(
+  startMinutes: number,
+  endMinutes: number,
+  interval: number,
+): GeneratedSlot[] {
+  const slots: GeneratedSlot[] = [];
+  if (!Number.isFinite(interval) || interval <= 0 || endMinutes <= startMinutes) return slots;
+  for (let cursor = startMinutes; cursor < endMinutes; cursor += interval) {
+    const slotEnd = Math.min(cursor + interval, endMinutes);
+    slots.push({
+      startMinutes: cursor,
+      endMinutes: slotEnd,
+      remainder: slotEnd - cursor < interval,
+    });
+  }
+  return slots;
+}
+
+/** How many slots an auto-split would produce, without building them. */
+export function splitCount(startMinutes: number, endMinutes: number, interval: number): number {
+  if (!Number.isFinite(interval) || interval <= 0 || endMinutes <= startMinutes) return 0;
+  return Math.ceil((endMinutes - startMinutes) / interval);
+}
+
+/** Combine a YYYY-MM-DD date with minutes past midnight into datetime-local. */
+export function composeLocal(dateOnly: string, minutes: number): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${dateOnly}T${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
+
+/** Plain-language summary of how a window is rationed, for listing + orders. */
+export function slotModeSummary(window: {
+  slot_mode: string;
+  capacity: number | null;
+  split_minutes: number | null;
+  slots_total?: number;
+  slots_taken?: number;
+}): string {
+  if (window.slot_mode === "open") return "Come any time in this window";
+  if (window.slot_mode === "capacity") {
+    const taken = window.slots_taken ?? 0;
+    const total = window.capacity ?? 0;
+    return `${Math.max(total - taken, 0)} of ${total} spots left`;
+  }
+  const count = window.slots_total ?? 0;
+  const label = window.split_minutes ? `${window.split_minutes}-minute` : "timed";
+  return `${count} ${label} ${count === 1 ? "slot" : "slots"} to book`;
+}

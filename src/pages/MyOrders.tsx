@@ -19,6 +19,7 @@ import { GroupInvitationCard } from "@/components/GroupInvitationCard";
 import { DeadlineTimer } from "@/components/DeadlineTimer";
 import { QRCodeView } from "@/components/QRCodeView";
 import { AddToCalendarButton } from "@/components/AddToCalendarButton";
+import { OrderPickupPlan } from "@/components/OrderPickupPlan";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ function OrderCard({ order, onCancelled }: { order: MyOrder; onCancelled: () => 
           </Badge>
         </div>
       </div>
+      <OrderPickupPlan order={order} />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Link to={`/orders/${order.id}`}>
           <Button variant="secondary" size="sm">

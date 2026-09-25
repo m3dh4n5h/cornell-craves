@@ -166,6 +166,30 @@ export function pickupCalendarOptions(params: {
   backupCode?: string | null;
   listingUrl?: string | null;
 }): CalendarOption[] {
+  // Migration 060: a spot carries a list of real dates. Each one becomes its
+  // own calendar option, so a club running Tuesday and Thursday gives the
+  // buyer two entries to choose between rather than one blurred range.
+  // Windows win over the spot's legacy single availability pair whenever a
+  // spot has any, and the pair is still honoured for drops created before 060.
+  const fromWindows: CalendarOption[] = (params.spots ?? []).flatMap((spot) =>
+    (spot.windows ?? []).map((window, index) => ({
+      key: `${spot.location_name}-${window.id ?? index}`,
+      label: `${formatEasternDateTime(window.start_time)} to ${formatEasternTime(window.end_time)}, ${spot.location_name} (${ORDER_TYPE_CALENDAR_LABEL[spot.order_type]})`,
+      event: {
+        title: params.title,
+        start: window.start_time,
+        end: window.end_time,
+        location: spotLocationText(spot),
+        description: pickupDescription({
+          pickupInfo: window.note ?? params.pickupInfo,
+          backupCode: params.backupCode,
+          listingUrl: params.listingUrl,
+        }),
+      },
+    })),
+  );
+  if (fromWindows.length > 0) return fromWindows;
+
   const timed = (params.spots ?? []).filter(
     (spot): spot is OrderPickupSpot & { available_start: string; available_end: string } =>
       Boolean(spot.available_start && spot.available_end),

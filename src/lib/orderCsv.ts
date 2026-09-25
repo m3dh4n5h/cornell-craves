@@ -1,5 +1,5 @@
 import { csvEscape } from "@/lib/csv";
-import type { GroupDetails, Order } from "@/types/database";
+import type { ClubOrderPickup, GroupDetails, Order } from "@/types/database";
 
 /**
  * The club's orders export.
@@ -46,6 +46,9 @@ type OrderRowish = Pick<
   | "picked_up_at"
   | "recommended_by"
   | "created_at"
+  | "walk_up"
+  | "walk_up_email"
+  | "pickup_spot_id"
 >;
 
 /** Money as a bare number: a `$` prefix turns the column into text in Sheets. */
@@ -82,6 +85,19 @@ const COLUMNS = [
   "ordered_at",
   "picked_up_at",
   "recommended_by",
+  // Pickup logistics (migration 060). These are what a club needs to email
+  // the right people when a date, a table or a time slot changes - which is
+  // exactly the moment a CSV earns its keep. `contact_email` repeats the
+  // buyer's address in a column named for what it is for, because the person
+  // doing a mail merge is looking for "contact", not "email".
+  "sale_channel",
+  "contact_email",
+  "pickup_spot",
+  "pickup_spot_type",
+  "booked_date",
+  "booked_window",
+  "booked_location",
+  "booked_quantity",
 ] as const;
 
 /** Group states, spelled out and prefixed so a box row never reads like a
@@ -114,7 +130,27 @@ function paymentDetails(details: { venmo?: string; zelle?: string }): string {
     .join("; ");
 }
 
-function orderLine(order: OrderRowish, listingTitle: string): Line {
+/** "Tue, Jun 16" and "11:00 AM to 11:20 AM" from a booked slot's timestamps. */
+function bookedDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function bookedWindow(startIso: string, endIso: string): string {
+  const time = (iso: string) =>
+    new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${time(startIso)} to ${time(endIso)}`;
+}
+
+function orderLine(
+  order: OrderRowish,
+  listingTitle: string,
+  pickup: ClubOrderPickup | undefined,
+): Line {
   const cancelled = order.status === "cancelled";
   const boxes = new Map<string, number>();
   if (!cancelled) {
@@ -152,6 +188,22 @@ function orderLine(order: OrderRowish, listingTitle: string): Line {
       ordered_at: order.created_at,
       picked_up_at: order.picked_up_at ?? "",
       recommended_by: order.recommended_by ?? "",
+      // A walk-up is a real order row (migration 060), so it lands in the same
+      // sheet as everything else. The column says which pile it came from,
+      // because same-day stock and pre-order stock are counted separately.
+      sale_channel: order.walk_up ? "same_day_walk_up" : "pre_order",
+      contact_email: order.walk_up
+        ? (order.walk_up_email ?? "")
+        : order.orderer_email,
+      pickup_spot: pickup?.spot_name ?? "",
+      pickup_spot_type: pickup?.spot_order_type ?? "",
+      booked_date: pickup?.reserved_start ? bookedDate(pickup.reserved_start) : "",
+      booked_window:
+        pickup?.reserved_start && pickup.reserved_end
+          ? bookedWindow(pickup.reserved_start, pickup.reserved_end)
+          : "",
+      booked_location: pickup?.reserved_location ?? "",
+      booked_quantity: pickup?.reserved_quantity != null ? String(pickup.reserved_quantity) : "",
     },
     boxes,
   };
@@ -179,6 +231,7 @@ function splitBoxLine(group: GroupDetails, listingTitle: string): Line {
       // Pre-048 groups carry a single creator-set recommender at the group
       // level. It belongs here, not smeared across members who never picked one.
       recommended_by: group.recommended_by ?? "",
+      sale_channel: "split_box",
     },
     // A canceled group is not bought.
     boxes: canceled ? new Map() : new Map([[group.item_name, 1]]),
@@ -256,6 +309,8 @@ function splitShareLine(
       // field would credit a recommender to members who never named one, and
       // would disagree with the leaderboard on the analytics page.
       recommended_by: member.recommended_by ?? "",
+      sale_channel: "split_share",
+      contact_email: member.email ?? "",
     },
     boxes: new Map(),
   };
@@ -272,13 +327,17 @@ export function buildOrdersCsv({
   listings,
   orders,
   groups,
+  pickup = [],
   scopeListingId,
 }: {
   listings: { id: string; title: string }[];
   orders: OrderRowish[];
   groups: GroupDetails[];
+  /** Per-order pickup context from get_club_order_pickup (migration 060). */
+  pickup?: ClubOrderPickup[];
   scopeListingId: string | null;
 }): OrdersCsvResult {
+  const pickupByOrder = new Map(pickup.map((row) => [row.order_id, row]));
   const inScope = (listingId: string) => !scopeListingId || listingId === scopeListingId;
   const titleOf = (id: string) => listings.find((listing) => listing.id === id)?.title ?? "";
 
@@ -303,7 +362,7 @@ export function buildOrdersCsv({
   for (const listingId of listingOrder) {
     const title = titleOf(listingId);
     for (const order of scopedOrders.filter((o) => o.listing_id === listingId)) {
-      lines.push(orderLine(order, title));
+      lines.push(orderLine(order, title, pickupByOrder.get(order.id)));
     }
     for (const group of scopedGroups.filter((g) => g.listing_id === listingId)) {
       lines.push(splitBoxLine(group, title));

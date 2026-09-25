@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyOrders, ORDER_STATUS_META } from "@/lib/orders";
+import { OrderPickupPlan } from "@/components/OrderPickupPlan";
 import { formatPrice } from "@/lib/format";
 import { pickupCalendarOptions } from "@/lib/calendar";
 import { QRCodeView } from "@/components/QRCodeView";
@@ -186,11 +187,7 @@ export default function OrderDetail() {
             <span className="ml-1 font-mono">{order.payment_details_json.zelle}</span>
           )}
         </p>
-        {(order.location_name || order.pickup_info) && (
-          <p className="mt-1 text-xs text-ink-muted">
-            Pickup: {order.location_name ?? order.pickup_info}
-          </p>
-        )}
+        <OrderPickupPlan order={order} />
         {order.contact_email && (
           <p className="mt-1 text-xs text-ink-muted">
             Questions? Contact {order.club_name ?? "the club"} at{" "}
