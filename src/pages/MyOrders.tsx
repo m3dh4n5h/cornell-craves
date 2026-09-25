@@ -10,6 +10,7 @@ import { ReservationCard } from "@/components/ReservationCard";
 import { fetchMyOrders, orderQuantity, ORDER_STATUS_META } from "@/lib/orders";
 import { GROUP_STATUS_META, PAYABLE_GROUP_STATUSES } from "@/lib/groups";
 import { formatPrice, formatEasternDateTime } from "@/lib/format";
+import { pickupCalendarOptions } from "@/lib/calendar";
 import { brandInitials, brandTint } from "@/lib/brands";
 import { openVenmo } from "@/lib/venmo";
 import { GroupMembers } from "@/components/GroupMembers";
@@ -17,6 +18,7 @@ import { GroupInviteLink } from "@/components/GroupInviteLink";
 import { GroupInvitationCard } from "@/components/GroupInvitationCard";
 import { DeadlineTimer } from "@/components/DeadlineTimer";
 import { QRCodeView } from "@/components/QRCodeView";
+import { AddToCalendarButton } from "@/components/AddToCalendarButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -435,6 +437,22 @@ function GroupCard({
                 {group.my_pickup_code}
               </p>
             </details>
+          )}
+          {group.expires_at && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <AddToCalendarButton
+                id={`group-${group.id}`}
+                options={pickupCalendarOptions({
+                  title: `Pick up: ${group.listing_title}`,
+                  spots: group.pickup_spots,
+                  fallbackDeadline: group.expires_at,
+                  fallbackLocation: group.location_name ?? group.pickup_info,
+                  pickupInfo: group.pickup_info,
+                  backupCode: group.my_pickup_code,
+                  listingUrl: `${window.location.origin}/listing/${group.listing_id}`,
+                })}
+              />
+            </div>
           )}
         </div>
       )}

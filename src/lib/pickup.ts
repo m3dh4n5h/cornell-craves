@@ -1,7 +1,9 @@
+import { easternDayKey } from "@/lib/format";
 import type {
   ListingPickupSpotWithLocation,
   ListingWithClub,
   OrderType,
+  PickupSlot,
   PickupType,
 } from "@/types/database";
 
@@ -110,4 +112,102 @@ export function formatPickupDay(date: Date): string {
   tomorrow.setDate(now.getDate() + 1);
   if (date.toDateString() === tomorrow.toDateString()) return "Tomorrow";
   return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+// ===================== Campus-wide pickup agenda =====================
+//
+// Shared by the "This week on campus" page and the club form's same-day
+// conflict warning: one instance per listing per pickup occasion, and the
+// Eastern calendar day it falls on.
+
+/** The minimal slot columns both callers below need. */
+export type PickupSlotLite = Pick<PickupSlot, "id" | "listing_id" | "start_time" | "end_time" | "location_id">;
+
+export interface PickupAgendaEntry {
+  listing: ListingWithClub;
+  slotId: string | null;
+  start: Date;
+  end: Date;
+  locationName: string | null;
+  /** Eastern calendar day (YYYY-MM-DD) `start` falls on. */
+  dayKey: string;
+}
+
+/** The listing's own spot matching a slot's location, or its first spot,
+ * or null (falls back to the listing's free-text pickup_info at render time). */
+function spotLocationName(listing: ListingWithClub, locationId: string | null): string | null {
+  const spots = listing.listing_pickup_spots ?? [];
+  const match = (locationId ? spots.find((spot) => spot.location_id === locationId) : null) ?? spots[0];
+  return match?.campus_locations?.name ?? null;
+}
+
+/**
+ * One agenda entry per scheduled pickup_slots row within [from, from+days).
+ * A listing with no scheduled slots (most drops: they just run until they
+ * expire) gets exactly one entry, on its expiry day, matching how
+ * hasUpcomingPickup() above already treats slot-less listings.
+ */
+export function buildPickupAgenda(
+  listings: ListingWithClub[],
+  slotsByListing: Map<string, PickupSlotLite[]>,
+  from: Date = new Date(),
+  days = 7,
+): PickupAgendaEntry[] {
+  const windowEnd = new Date(from.getTime() + days * 86_400_000);
+  const entries: PickupAgendaEntry[] = [];
+
+  for (const listing of listings) {
+    const slots = slotsByListing.get(listing.id) ?? [];
+    if (slots.length > 0) {
+      for (const slot of slots) {
+        const start = new Date(slot.start_time);
+        if (start < from || start > windowEnd) continue;
+        entries.push({
+          listing,
+          slotId: slot.id,
+          start,
+          end: new Date(slot.end_time),
+          locationName: spotLocationName(listing, slot.location_id),
+          dayKey: easternDayKey(start),
+        });
+      }
+    } else {
+      const end = new Date(listing.expires_at);
+      if (end < from || end > windowEnd) continue;
+      entries.push({
+        listing,
+        slotId: null,
+        start: end,
+        end,
+        locationName: spotLocationName(listing, null),
+        dayKey: easternDayKey(end),
+      });
+    }
+  }
+
+  return entries.sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+export interface PickupAgendaDay {
+  dayKey: string;
+  date: Date;
+  entries: PickupAgendaEntry[];
+}
+
+/** Groups a flat agenda (already sorted by start) into day buckets, in order. */
+export function groupAgendaByDay(entries: PickupAgendaEntry[]): PickupAgendaDay[] {
+  const byDay = new Map<string, PickupAgendaEntry[]>();
+  for (const entry of entries) {
+    const list = byDay.get(entry.dayKey);
+    if (list) list.push(entry);
+    else byDay.set(entry.dayKey, [entry]);
+  }
+  return [...byDay.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([dayKey, dayEntries]) => ({ dayKey, date: dayEntries[0].start, entries: dayEntries }));
+}
+
+/** "Oct 3" for a YYYY-MM-DD day key (noon avoids any UTC-parsing day shift). */
+export function formatDayKeyShort(dayKey: string): string {
+  return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

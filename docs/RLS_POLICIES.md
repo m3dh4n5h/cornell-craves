@@ -54,4 +54,6 @@ These functions run as owner and bypass RLS, so their internal checks are the au
 
 Stock caps are enforced by the `orders_enforce_stock` and `order_groups_enforce_stock` triggers (054), which lock the listing row before counting. Their helpers (`listing_item_held`, `item_stock_cap`) are not executable by `anon` or `authenticated`.
 
+`group_payload()` (048, behind all four group RPCs above) also carries `pickup_info`, `expires_at`, `location_name` and `pickup_spots` (each spot's fixed start/end and coordinates, where the club set one) as of 056, letting a split group's pickup pass build an "Add to calendar" event, with a picker when the drop offers more than one timed spot, without a second fetch. `get_my_orders` (038) carries the same `pickup_spots` field as of 057. All of it is already public on the listing itself; `group_payload()` itself stays non-callable by clients (052).
+
 Privileged actions in the `notify-cravings` edge function (`verify_payment`, `scan_qr`, `verify_group_payment`, `reactivate_group`, `send_reminders`) validate the caller's JWT and require `listing.club_id = auth.uid()`.

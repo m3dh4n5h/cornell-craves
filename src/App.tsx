@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Cravings = lazy(() => import("@/pages/Cravings"));
 const Admin = lazy(() => import("@/pages/Admin"));
 const MapPage = lazy(() => import("@/pages/MapPage"));
+const Week = lazy(() => import("@/pages/Week"));
 const ClubAnalytics = lazy(() => import("@/pages/ClubAnalytics"));
 const ClubTemplates = lazy(() => import("@/pages/ClubTemplates"));
 const ClubReservations = lazy(() => import("@/pages/ClubReservations"));
@@ -184,6 +185,7 @@ export default function App() {
               <Route path="/cravings" element={<Screen><Cravings /></Screen>} />
               <Route path="/admin" element={<Screen><Admin /></Screen>} />
               <Route path="/map" element={<Screen><MapPage /></Screen>} />
+              <Route path="/week" element={<Screen><Week /></Screen>} />
               <Route path="/orders" element={<Screen><MyOrders /></Screen>} />
               <Route path="/orders/:id" element={<Screen><OrderDetail /></Screen>} />
               <Route path="/invite/:token" element={<Screen><InvitePage /></Screen>} />

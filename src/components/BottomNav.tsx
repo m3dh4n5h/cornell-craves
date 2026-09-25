@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   Flame,
   MapPinned,
+  CalendarDays,
   BellRing,
   ReceiptText,
   UserRound,
@@ -19,6 +20,7 @@ type Tab = { to: string; label: string; Icon: LucideIcon; end?: boolean };
 const STUDENT_TABS: Tab[] = [
   { to: "/", label: "Feed", Icon: Flame, end: true },
   { to: "/map", label: "Map", Icon: MapPinned },
+  { to: "/week", label: "Week", Icon: CalendarDays },
   { to: "/cravings", label: "Cravings", Icon: BellRing },
   { to: "/orders", label: "Orders", Icon: ReceiptText },
   { to: "/account/settings", label: "Account", Icon: UserRound },

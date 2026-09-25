@@ -6,7 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyOrders, ORDER_STATUS_META } from "@/lib/orders";
 import { formatPrice } from "@/lib/format";
+import { pickupCalendarOptions } from "@/lib/calendar";
 import { QRCodeView } from "@/components/QRCodeView";
+import { AddToCalendarButton } from "@/components/AddToCalendarButton";
 import { VenmoButton } from "@/components/VenmoButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -253,6 +255,20 @@ export default function OrderDetail() {
               </p>
             </details>
           )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <AddToCalendarButton
+              id={`order-${order.id}`}
+              options={pickupCalendarOptions({
+                title: `Pick up: ${order.listing_title}`,
+                spots: order.pickup_spots,
+                fallbackDeadline: order.expires_at,
+                fallbackLocation: order.location_name ?? order.pickup_info,
+                pickupInfo: order.pickup_info,
+                backupCode: ordererQr?.pickup_code,
+                listingUrl: `${window.location.origin}/listing/${order.listing_id}`,
+              })}
+            />
+          </div>
         </section>
       ) : (
         order.status === "pending_payment" && (

@@ -19,6 +19,7 @@ node supabase/tests/admin-roles.mjs    # expect: 41 passed, 0 failed
 node supabase/tests/split-attack.mjs   # expect: 41 passed, 0 failed
 node supabase/tests/split-lifecycle.mjs # expect: 126 passed, 0 failed
 node supabase/tests/stock-goals.mjs    # expect: 46 passed, 0 failed
+node supabase/tests/pickup-calendar.mjs # expect: 13 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,

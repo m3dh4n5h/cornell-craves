@@ -4,6 +4,8 @@ import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { openVenmo } from "@/lib/venmo";
+import { pickupDescription, type CalendarOption } from "@/lib/calendar";
+import { AddToCalendarButton } from "@/components/AddToCalendarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { brandInitials, brandTint } from "@/lib/brands";
@@ -16,6 +18,27 @@ export function formatSlot(reservation: MyReservation): string {
   const day = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const timeOptions: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
   return `${day}, ${start.toLocaleTimeString("en-US", timeOptions)} to ${end.toLocaleTimeString("en-US", timeOptions)}`;
+}
+
+// A reservation is a dedicated pickup time slot the buyer already chose, so
+// there is never a "which pickup?" question here: one option, the real slot.
+function reservationOptions(reservation: MyReservation): CalendarOption[] {
+  return [
+    {
+      key: "reservation",
+      label: "Your reserved pickup",
+      event: {
+        title: `Pick up: ${reservation.listing_title}`,
+        start: reservation.start_time,
+        end: reservation.end_time,
+        location: reservation.location_name,
+        description: pickupDescription({
+          note: `${reservation.quantity} ${reservation.quantity === 1 ? "item" : "items"} reserved with ${reservation.club_name}.`,
+          listingUrl: `${window.location.origin}/listing/${reservation.listing_id}`,
+        }),
+      },
+    },
+  ];
 }
 
 function canConfirm(reservation: MyReservation): boolean {
@@ -118,6 +141,10 @@ export function ReservationCard({
               Confirm attendance
             </Button>
           )}
+          <AddToCalendarButton
+            id={`reservation-${reservation.id}`}
+            options={reservationOptions(reservation)}
+          />
           <Button
             variant="secondary"
             size="sm"

@@ -6,6 +6,7 @@ import type {
   OrderItem,
   OrderQRCode,
   OrderStatus,
+  OrderType,
   PickupType,
 } from "@/types/database";
 
@@ -48,6 +49,12 @@ type AuthedOrderRow = Order & {
     expires_at: string;
     campus_locations: { name: string } | null;
     clubs: { name: string } | null;
+    listing_pickup_spots: {
+      order_type: OrderType;
+      available_start: string | null;
+      available_end: string | null;
+      campus_locations: { name: string; latitude: number; longitude: number } | null;
+    }[];
   } | null;
   order_qr_codes: OrderQRCode[];
 };
@@ -64,11 +71,27 @@ function mapAuthedRow(row: AuthedOrderRow): MyOrder {
     club_name: listings?.clubs?.name ?? null,
     contact_email: listings?.contact_email ?? null,
     qr_codes: order_qr_codes ?? [],
+    // The listing's own pickup spots, for the "Add to calendar" picker
+    // (feature 3): same shape get_my_orders (057) returns for the guest path.
+    pickup_spots: (listings?.listing_pickup_spots ?? []).flatMap((spot) =>
+      spot.campus_locations
+        ? [
+            {
+              order_type: spot.order_type,
+              available_start: spot.available_start,
+              available_end: spot.available_end,
+              location_name: spot.campus_locations.name,
+              latitude: Number(spot.campus_locations.latitude),
+              longitude: Number(spot.campus_locations.longitude),
+            },
+          ]
+        : [],
+    ),
   };
 }
 
 const AUTHED_ORDER_SELECT =
-  "*, listings(title, brand, pickup_info, contact_email, expires_at, campus_locations(name), clubs(name)), order_qr_codes(*)";
+  "*, listings(title, brand, pickup_info, contact_email, expires_at, campus_locations(name), clubs(name), listing_pickup_spots(order_type, available_start, available_end, campus_locations(name, latitude, longitude))), order_qr_codes(*)";
 
 /** Signed-in students query by user id (RLS); guests look up via the RPC. */
 export async function fetchMyOrders(options: {

@@ -24,7 +24,7 @@ export function priceRange(items: ListingItem[]): string | null {
 export const APP_TIME_ZONE = "America/New_York";
 
 /** Calendar day (YYYY-MM-DD) an instant falls on in Eastern time. */
-function easternDayKey(date: Date): string {
+export function easternDayKey(date: Date): string {
   return date.toLocaleDateString("en-CA", { timeZone: APP_TIME_ZONE });
 }
 

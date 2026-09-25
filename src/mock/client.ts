@@ -196,7 +196,7 @@ const RPC: Record<string, (args?: Row) => unknown> = {
   get_my_orders: () => fx.myOrders,
   get_my_groups: () => fx.myGroups,
   get_my_group_invites: () => [],
-  get_my_reservations: () => [],
+  get_my_reservations: () => fx.myReservations,
   get_club_groups: () => fx.clubGroups,
   club_dashboard_stats: () => fx.clubStats,
   get_my_craving: () => ({ brands: ["Krispy Kreme", "Crumbl", "Insomnia Cookies"] }),

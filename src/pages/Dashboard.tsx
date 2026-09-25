@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
@@ -7,6 +7,7 @@ import {
   Compass,
   Copy,
   Hourglass,
+  Info,
   LayoutTemplate,
   PackageOpen,
   Plus,
@@ -23,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClub } from "@/hooks/useClub";
 import { useTour } from "@/hooks/useTour";
 import { useListings } from "@/hooks/useListings";
+import { usePickupAgenda } from "@/hooks/usePickupAgenda";
 import { useCountdown } from "@/hooks/useCountdown";
 import {
   ItemsEditor,
@@ -43,9 +45,10 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrandOptions } from "@/hooks/useBrands";
 import { brandInList, useClubBrandStatus } from "@/hooks/useClubBrands";
-import { geocodeAddress } from "@/lib/geocode";
+import { geocodeAddress, osmEmbedUrl, osmViewUrl, type GeocodeResult } from "@/lib/geocode";
 import { formatExpiry, formatPrice } from "@/lib/format";
 import { itemRemaining } from "@/lib/stock";
+import { formatDayKeyShort } from "@/lib/pickup";
 import type {
   BrandRequest,
   CampusLocation,
@@ -192,6 +195,59 @@ function SlotsEditor({
   );
 }
 
+/**
+ * Non-blocking "N other drops on <day>" note (feature 6): the club picks a
+ * pickup day, and this shows who else is already live that same day, so
+ * they can spread out if they want to. Never blocks publishing.
+ *
+ * slots' dates come straight from the datetime-local strings the club typed
+ * (YYYY-MM-DDTHH:MM); slicing off the date is exact and needs no timezone
+ * math (the app already treats these as Eastern wall-clock input). Other
+ * clubs' days come from the DB as real instants, so those go through
+ * usePickupAgenda's Eastern-aware dayKey.
+ */
+function DayConflictWarning({
+  slots,
+  expiresAt,
+  otherAgenda,
+}: {
+  slots: SlotDraft[];
+  expiresAt: string;
+  otherAgenda: ReturnType<typeof usePickupAgenda>["entries"];
+}) {
+  const draftDayKeys = useMemo(() => {
+    const filled = [...new Set(slots.filter((slot) => slot.start).map((slot) => slot.start.slice(0, 10)))];
+    return filled.length > 0 ? filled : expiresAt ? [expiresAt.slice(0, 10)] : [];
+  }, [slots, expiresAt]);
+
+  const conflicts = useMemo(
+    () =>
+      draftDayKeys
+        .map((dayKey) => ({
+          dayKey,
+          titles: [
+            ...new Set(otherAgenda.filter((entry) => entry.dayKey === dayKey).map((entry) => entry.listing.title)),
+          ],
+        }))
+        .filter((day) => day.titles.length > 0),
+    [draftDayKeys, otherAgenda],
+  );
+
+  if (conflicts.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-1">
+      {conflicts.map(({ dayKey, titles }) => (
+        <p key={dayKey} className="flex items-start gap-1.5 text-xs text-ink-muted">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {titles.length} other {titles.length === 1 ? "drop" : "drops"} on {formatDayKeyShort(dayKey)}:{" "}
+          {titles.join(", ")}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 interface SpotDraft {
   id?: string;
   locationId: string;
@@ -217,6 +273,12 @@ function spotsError(spots: SpotDraft[]): string | undefined {
     return "Each pickup spot must be a different campus location.";
   }
   for (const spot of spots) {
+    // "From" and "until" are a pair: half of one with none of the other
+    // cannot build a real calendar event, so require both together (or
+    // neither, which still means "shows the whole drop" for the map pin).
+    if (Boolean(spot.availableStart) !== Boolean(spot.availableEnd)) {
+      return "Set both a start and an end time for the pickup window, or leave both blank.";
+    }
     if (
       spot.availableStart &&
       spot.availableEnd &&
@@ -344,8 +406,8 @@ function SpotsEditor({
             </div>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted">
-            The map shows this spot's pin only between these times. Leave blank to show it the
-            whole drop.
+            The map shows this spot's pin only between these times, and buyers can add this exact
+            window to their calendar. Leave both blank to show it the whole drop.
           </p>
           {spotDraftMultiDay(spot) && (
             <div className="mt-2">
@@ -430,6 +492,9 @@ function ListingForm({
       : toDatetimeLocal(new Date(Date.now() + 6 * 3_600_000)),
   );
   const [slots, setSlots] = useState<SlotDraft[]>([]);
+  // Same-day conflict warning (feature 6): other clubs' live drops sharing a
+  // pickup day with this one. Non-blocking, purely informational.
+  const { entries: otherAgenda } = usePickupAgenda({ excludeListingId: initial?.id });
   const [originalSlots, setOriginalSlots] = useState<PickupSlot[]>([]);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -437,30 +502,42 @@ function ListingForm({
   const brandOptions = useBrandOptions();
   const [requestingBrand, setRequestingBrand] = useState(false);
   const [requestedBrands, setRequestedBrands] = useState<string[]>([]);
-  // Add a custom pickup location by name + address, geocoded via Nominatim (#4).
+  // Add a custom pickup location by name + address, geocoded via Nominatim
+  // (#4). Two steps, not one: geocoding only FINDS a candidate pin, which the
+  // club has to look at and confirm before it is saved, so a stray "Ithaca"
+  // match somewhere else in the country never quietly becomes a pickup spot.
   const [customName, setCustomName] = useState("");
   const [customAddress, setCustomAddress] = useState("");
+  const [findingAddress, setFindingAddress] = useState(false);
+  const [foundLocation, setFoundLocation] = useState<GeocodeResult | null>(null);
   const [addingLocation, setAddingLocation] = useState(false);
 
-  const addCustomLocation = async () => {
-    const name = customName.trim();
-    const address = customAddress.trim();
-    if (name.length < 2 || address.length < 4) {
+  const findAddress = async () => {
+    if (customName.trim().length < 2 || customAddress.trim().length < 4) {
       toast.error("Enter a name and a full street address.");
       return;
     }
-    setAddingLocation(true);
-    const geo = await geocodeAddress(address);
+    setFindingAddress(true);
+    const geo = await geocodeAddress(customAddress.trim());
+    setFindingAddress(false);
     if (!geo) {
-      setAddingLocation(false);
       toast.error("Couldn't find that address. Try adding \"Ithaca, NY\".");
       return;
     }
+    setFoundLocation(geo);
+  };
+
+  const confirmCustomLocation = async () => {
+    if (!foundLocation) return;
+    setAddingLocation(true);
     const { data, error } = await supabase.rpc("add_campus_location", {
-      p_name: name,
-      p_lat: geo.lat,
-      p_lng: geo.lng,
-      p_description: address,
+      p_name: customName.trim(),
+      p_lat: foundLocation.lat,
+      p_lng: foundLocation.lng,
+      // The geocoder's own resolved address, not what the club typed: it is
+      // the canonical form (unit/city/state spelled out), and it is exactly
+      // what they just confirmed matches the pin.
+      p_description: foundLocation.displayName,
     });
     setAddingLocation(false);
     if (error || !data) {
@@ -481,6 +558,7 @@ function ListingForm({
     ]);
     setCustomName("");
     setCustomAddress("");
+    setFoundLocation(null);
     toast.success(`Added "${location.name}". It's selected as a pickup spot below.`);
   };
 
@@ -860,6 +938,7 @@ function ListingForm({
               placeholder="RPCC"
               aria-label="Custom spot name"
               className="h-10"
+              disabled={Boolean(foundLocation)}
             />
             <Input
               value={customAddress}
@@ -867,19 +946,62 @@ function ListingForm({
               placeholder="107 Jessup Rd, Ithaca, NY"
               aria-label="Street address"
               className="h-10"
+              disabled={Boolean(foundLocation)}
             />
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="mt-2"
-            loading={addingLocation}
-            onClick={() => void addCustomLocation()}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            Find &amp; add spot
-          </Button>
+          {!foundLocation ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="mt-2"
+              loading={findingAddress}
+              onClick={() => void findAddress()}
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Find address
+            </Button>
+          ) : (
+            <div className="mt-3 rounded-xl border border-primary-dark/40 bg-primary/10 p-3">
+              <p className="text-sm font-bold">Is this the right spot?</p>
+              <p className="mt-1 text-sm text-ink-muted">{foundLocation.displayName}</p>
+              <div className="mt-2.5 overflow-hidden rounded-lg border border-border">
+                <iframe
+                  title={`Map preview of ${customName.trim() || "the new spot"}`}
+                  src={osmEmbedUrl(foundLocation.lat, foundLocation.lng)}
+                  className="h-40 w-full"
+                  loading="lazy"
+                />
+              </div>
+              <a
+                href={osmViewUrl(foundLocation.lat, foundLocation.lng)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-block text-xs font-semibold text-ink underline-offset-2 hover-fine:underline"
+              >
+                Open in OpenStreetMap
+              </a>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={addingLocation}
+                  onClick={() => void confirmCustomLocation()}
+                >
+                  Confirm and add spot
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={addingLocation}
+                  onClick={() => setFoundLocation(null)}
+                >
+                  Not it, search again
+                </Button>
+              </div>
+            </div>
+          )}
         </details>
       </div>
 
@@ -897,6 +1019,7 @@ function ListingForm({
         <Label>Pickup days</Label>
         <SlotsEditor slots={slots} locations={locations} onChange={setSlots} />
         <FieldError message={showErrors ? errors.slots : undefined} />
+        <DayConflictWarning slots={slots} expiresAt={expiresAt} otherAgenda={otherAgenda} />
       </div>
 
       <div className="mt-5">

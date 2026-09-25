@@ -433,6 +433,29 @@ export const pickupSlots: PickupSlot[] = [
   },
 ];
 
+// A student's booked pickup time (feature 3: real start/end, no deadline
+// approximation, unlike the order/group calendar events above).
+export const myReservations = [
+  {
+    id: "res-1",
+    quantity: 2,
+    dietary_notes: null,
+    confirmed: false,
+    attended: false,
+    created_at: daysAgo(0, 6),
+    slot_id: "slot-1",
+    start_time: hours(22),
+    end_time: hours(25),
+    listing_id: "l-kk",
+    listing_title: "Glazed dozens outside Duffield",
+    brand: "Krispy Kreme",
+    listing_active: true,
+    location_name: "Duffield Atrium",
+    club_name: "Willow Lane Dance Crew",
+    venmo: "willow-lane-dance",
+    zelle_phone: null,
+  },
+];
 
 export const profileRow = {
   id: "u-student",
@@ -494,6 +517,12 @@ export const myOrders = [
     club_name: "Willow Lane Dance Crew",
     contact_email: "willowlane.club@cornell.edu",
     qr_codes: [qr("o-1001", "orderer", false, "7K3MPQ9T2X"), qr("o-1001", "proxy", false, "M2XW8HJ4RV")],
+    // Two spots with fixed timing (feature 3): the "Add to calendar" button
+    // shows a picker so the buyer chooses which one they're using.
+    pickup_spots: [
+      { order_type: "preorder", available_start: hours(22), available_end: hours(25), location_name: "Duffield Atrium", latitude: 42.4442, longitude: -76.4823 },
+      { order_type: "same_day", available_start: hours(46), available_end: hours(49), location_name: "Ho Plaza", latitude: 42.4472, longitude: -76.4852 },
+    ],
   },
   {
     id: "o-1002",
@@ -523,6 +552,11 @@ export const myOrders = [
     club_name: "Silverblade Skating Club",
     contact_email: "silverblade.club@cornell.edu",
     qr_codes: [qr("o-1002", "orderer", false, "TBD0000000")],
+    // One spot with fixed timing: "Add to calendar" goes straight to the two
+    // actions, no picker needed.
+    pickup_spots: [
+      { order_type: "preorder", available_start: hours(47), available_end: hours(49), location_name: "Willard Straight Hall", latitude: 42.4466, longitude: -76.4855 },
+    ],
   },
 ];
 
@@ -530,7 +564,7 @@ export const myOrders = [
 // QR rows embedded, then map them client-side. Reshape myOrders to that row
 // shape so the authed order pages render under the mock.
 export const authedOrders = myOrders.map((order) => {
-  const { listing_title, brand, pickup_info, location_name, expires_at, club_name, contact_email, qr_codes, ...base } = order;
+  const { listing_title, brand, pickup_info, location_name, expires_at, club_name, contact_email, qr_codes, pickup_spots, ...base } = order;
   return {
     ...base,
     listings: {
@@ -541,6 +575,14 @@ export const authedOrders = myOrders.map((order) => {
       expires_at,
       campus_locations: location_name ? { name: location_name } : null,
       clubs: club_name ? { name: club_name } : null,
+      // Reshaped into the nested campus_locations(...) embed mapAuthedRow()
+      // expects from the real AUTHED_ORDER_SELECT query.
+      listing_pickup_spots: (pickup_spots ?? []).map((spot) => ({
+        order_type: spot.order_type,
+        available_start: spot.available_start,
+        available_end: spot.available_end,
+        campus_locations: { name: spot.location_name, latitude: spot.latitude, longitude: spot.longitude },
+      })),
     },
     order_qr_codes: qr_codes,
   };
@@ -573,6 +615,9 @@ export const myGroups = [
     listing_title: "Crumbl party box drop",
     brand: "Crumbl",
     listing_active: true,
+    pickup_info: "Willard Straight lobby, 5 to 8 pm",
+    expires_at: hours(48),
+    location_name: "Willard Straight Hall",
     club_name: "Silverblade Skating Club",
     club_venmo: "silverblade-skate",
     club_zelle: "607-555-0134",
@@ -584,6 +629,48 @@ export const myGroups = [
     members: groupMembers,
     my_status: "paid",
     my_member_id: "gm-1",
+  },
+  // Fully verified group: shows the QR pass + "Add to calendar" (feature 3).
+  {
+    id: "g-paid-demo",
+    listing_id: "l-cfa",
+    item_name: "Chicken sandwich",
+    item_price: 9.5,
+    item_quantity: 1,
+    split_type: 2,
+    total_people: 2,
+    filled_count: 2,
+    deadline: hours(6),
+    order_deadline: hours(-1),
+    status: "paid",
+    visibility: "private",
+    created_by: "u-student",
+    created_at: daysAgo(1, 5),
+    listing_title: "Sandwich run, pick up at Statler",
+    brand: "Chick-fil-A",
+    listing_active: true,
+    pickup_info: "Statler front steps, 12 to 2 pm",
+    expires_at: hours(6),
+    location_name: "Statler Hall",
+    club_name: "EWB Cornell",
+    club_venmo: "ewb-cornell",
+    club_zelle: "607-555-0177",
+    pickup_spots: [
+      { order_type: "both", available_start: hours(1), available_end: hours(6), location_name: "Statler Hall", latitude: 42.4456, longitude: -76.4818 },
+    ],
+    share_amount: 4.75,
+    units_per_person: 1,
+    open_token: null,
+    recommender_enabled: false,
+    member_options: [],
+    members: [
+      { id: "gm-4", user_id: "u-student", name: "Casey Nguyen", status: "paid", scanned_at: null, is_creator: true, payment_method: "venmo", payment_handle: "casey-nguyen" },
+      { id: "gm-5", user_id: "u-x4", name: "Riley Chen", status: "paid", scanned_at: null, is_creator: false, payment_method: "zelle", payment_handle: "rc245@cornell.edu" },
+    ],
+    my_status: "paid",
+    my_member_id: "gm-4",
+    my_qr: "demo-group-pickup-token",
+    my_pickup_code: "AB12CD34EF",
   },
 ];
 

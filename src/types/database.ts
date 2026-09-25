@@ -403,6 +403,23 @@ export type OrderItem = {
 
 export type PaymentMethod = "venmo" | "zelle" | "both";
 
+/**
+ * One of a listing's pickup spots, as carried on an order or group (migrations
+ * 056/057): a fixed start/end window the club entered (not a guess) plus the
+ * geocoded coordinates of where it is, so a buyer's "Add to calendar" can
+ * build a real, located event. Absent start/end means the spot has no fixed
+ * window (shows for the whole drop); such spots are skipped for calendar
+ * purposes since there is no real time to put on the event.
+ */
+export type OrderPickupSpot = {
+  order_type: OrderType;
+  available_start: string | null;
+  available_end: string | null;
+  location_name: string;
+  latitude: number;
+  longitude: number;
+};
+
 export type OrderStatus = "pending_payment" | "qr_sent" | "picked_up" | "cancelled";
 
 export type Order = {
@@ -451,6 +468,8 @@ export type MyOrder = Order & {
   club_name: string | null;
   contact_email: string | null;
   qr_codes: OrderQRCode[];
+  /** The listing's own pickup spots, with fixed timing where the club set it (migration 057). */
+  pickup_spots?: OrderPickupSpot[];
 };
 
 export type GroupStatus =
@@ -551,6 +570,14 @@ export type GroupDetails = OrderGroup & {
   club_name: string;
   club_venmo: string | null;
   club_zelle: string | null;
+  /** The listing's free-text pickup window (migration 056). */
+  pickup_info?: string | null;
+  /** The listing's end time, also the group's "pick up by" deadline (migration 056). */
+  expires_at?: string;
+  /** Name of the listing's pickup_location_id, if it has one (migration 056). */
+  location_name?: string | null;
+  /** The listing's own pickup spots, with fixed timing where the club set it (migration 056). */
+  pickup_spots?: OrderPickupSpot[];
   share_amount: number;
   units_per_person?: number;
   open_token: string | null;

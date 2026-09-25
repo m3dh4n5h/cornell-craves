@@ -94,6 +94,9 @@ export function Navbar() {
               <NavLink to="/map" className={navLinkClass}>
                 Map
               </NavLink>
+              <NavLink to="/week" className={navLinkClass}>
+                Week
+              </NavLink>
               <NavLink to="/cravings" className={navLinkClass}>
                 Cravings
               </NavLink>

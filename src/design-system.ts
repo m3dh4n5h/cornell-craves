@@ -43,6 +43,7 @@ export { StockBadge } from "./components/StockBadge";
 export { TemplateCard } from "./components/TemplateCard";
 
 // Ordering and payment
+export { AddToCalendarButton } from "./components/AddToCalendarButton";
 export { GroupInviteLink } from "./components/GroupInviteLink";
 export { SplitOrderToggle } from "./components/SplitOrderToggle";
 export { SplitTypeSelector } from "./components/SplitTypeSelector";
