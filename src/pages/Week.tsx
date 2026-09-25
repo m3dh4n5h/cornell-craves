@@ -60,7 +60,7 @@ function AgendaRow({ entry }: { entry: PickupAgendaEntry }) {
         ) : (
           low && <StockBadge remaining={low.remaining} stock={low.item.stock} className="mt-2" />
         )}
-        {listing.cause_name && listing.goal_amount != null && (
+        {listing.goal_amount != null && (
           <GoalProgress
             compact
             goal={Number(listing.goal_amount)}

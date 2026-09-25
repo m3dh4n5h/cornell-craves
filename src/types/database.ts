@@ -222,7 +222,7 @@ export type Listing = {
   recommender_enabled: boolean;
   cause_name: string | null;
   cause_percent: number | null;
-  /** Fundraiser target in dollars, labelled by cause_name (migration 055). */
+  /** Club fundraising target in dollars, independent of the cause (055, 058). */
   goal_amount: number | null;
   draft: boolean;
   auto_post_on_brand: boolean;

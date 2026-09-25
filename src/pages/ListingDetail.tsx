@@ -408,11 +408,10 @@ export default function ListingDetail() {
             </p>
           )}
 
-          {listing.cause_name && listing.goal_amount != null && (
+          {listing.goal_amount != null && (
             <GoalProgress
               goal={Number(listing.goal_amount)}
               raised={listing.goal_raised ?? 0}
-              label={listing.cause_name}
               className="mt-3 rounded-xl border border-border bg-surface-raised p-3"
             />
           )}

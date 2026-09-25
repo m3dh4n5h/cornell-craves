@@ -95,12 +95,11 @@ export function ListingCard({ listing }: ListingCardProps) {
           </p>
         )}
 
-        {listing.cause_name && listing.goal_amount != null && (
+        {listing.goal_amount != null && (
           <GoalProgress
             compact
             goal={Number(listing.goal_amount)}
             raised={listing.goal_raised ?? 0}
-            label={listing.cause_name}
             className="mt-2"
           />
         )}

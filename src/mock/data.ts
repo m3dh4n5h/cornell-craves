@@ -207,8 +207,9 @@ export const listings: ListingWithClub[] = [
     pickup_location_id: "loc-statler",
     contact_email: "northbridge.club@cornell.edu",
     recommender_enabled: false,
-    cause_name: "Clean-Water Build Trip",
-    cause_percent: 100,
+    // Goal with no cause: the club raising for itself (058).
+    cause_name: null,
+    cause_percent: null,
     goal_amount: 500,
     draft: false,
     auto_post_on_brand: false,

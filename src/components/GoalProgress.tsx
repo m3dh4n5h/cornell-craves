@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 interface GoalProgressProps {
   goal: number;
   raised: number;
-  /** The cause the drop is raising for, shown as "Raising for: <label>". */
+  /** Optional heading; defaults to "Club goal". Not the drop's cause (058). */
   label?: string | null;
   /** Thin bar and one line of text, for feed cards and dashboard rows. */
   compact?: boolean;
@@ -24,14 +24,14 @@ export function GoalProgress({ goal, raised, label, compact = false, className }
 
   return (
     <div className={className}>
-      {!compact && label && (
+      {!compact && (
         <p className="mb-1.5 text-sm font-semibold text-ink">
-          Raising for: <span className="break-words">{label}</span>
+          <span className="break-words">{label || "Club goal"}</span>
         </p>
       )}
       <div
         role="progressbar"
-        aria-label={label ? `Raised for ${label}` : "Raised toward goal"}
+        aria-label={label ? `Raised toward ${label}` : "Raised toward club goal"}
         aria-valuemin={0}
         aria-valuemax={goal}
         aria-valuenow={Math.min(shown, goal)}

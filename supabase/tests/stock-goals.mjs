@@ -287,7 +287,7 @@ check(
 // ===================== Fundraiser goals =====================
 console.log("\nFundraiser goals");
 res = await attempt(() => seedListing("Goal without cause", [{ name: "Box", price: 10 }], { goal: 500 }));
-check("a goal needs a cause name", !res.ok, res.ok ? "was accepted" : "");
+check("a goal does not need a cause (058)", res.ok, res.ok ? "" : res.message ?? "rejected");
 res = await attempt(() =>
   seedListing("Zero goal", [{ name: "Box", price: 10 }], { goal: 0, cause: "Trip" }),
 );

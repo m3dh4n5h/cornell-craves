@@ -303,9 +303,9 @@ function causeError(name: string, percent: string): string | undefined {
     : "Enter a donation percentage from 1 to 100.";
 }
 
-/** An optional fundraiser goal: a dollar amount up to $1,000,000 (migration 055). */
-function goalError(name: string, goal: string): string | undefined {
-  if (!name.trim() || !goal.trim()) return undefined;
+/** An optional club fundraising goal: a dollar amount up to $1,000,000 (055, 058). */
+function goalError(goal: string): string | undefined {
+  if (!goal.trim()) return undefined;
   const value = Number.parseFloat(goal);
   return Number.isFinite(value) && value > 0 && value <= 1_000_000
     ? undefined
@@ -482,7 +482,7 @@ function ListingForm({
   const [causePercent, setCausePercent] = useState(
     source?.cause_percent != null ? String(source.cause_percent) : "",
   );
-  // Optional fundraiser goal, labelled by the cause name (migration 055).
+  // Optional club fundraising goal, independent of any cause (migration 058).
   const [goalAmount, setGoalAmount] = useState(
     source?.goal_amount != null ? String(source.goal_amount) : "",
   );
@@ -640,7 +640,7 @@ function ListingForm({
       : "Every pickup slot needs a start, an end after it, and at least as many spots as already reserved.",
     spots: spotsError(spots),
     cause: causeError(causeName, causePercent),
-    goal: goalError(causeName, goalAmount),
+    goal: goalError(goalAmount),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -716,7 +716,7 @@ function ListingForm({
       cause_name: causeName.trim() || null,
       cause_percent: causeName.trim() ? Number.parseInt(causePercent, 10) : null,
       goal_amount:
-        causeName.trim() && goalAmount.trim()
+        goalAmount.trim()
           ? Math.round(Number.parseFloat(goalAmount) * 100) / 100
           : null,
       // Unapproved brands can't go live: keep as a draft or auto-post on approval (#7).
@@ -1045,7 +1045,14 @@ function ListingForm({
           </div>
         </div>
         <FieldError message={showErrors ? errors.cause : undefined} />
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <p className="mt-1.5 text-xs text-ink-muted">
+          Drops with a cause are pinned to the top of the feed.
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <Label>Club fundraising goal (optional)</Label>
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-36">
             <span
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-ink-muted"
@@ -1060,14 +1067,13 @@ function ListingForm({
               placeholder="800"
               aria-label="Fundraising goal in dollars, optional"
               className="pl-7 font-mono"
-              disabled={!causeName.trim()}
             />
           </div>
-          <span className="text-sm text-ink-muted">goal (optional)</span>
+          <span className="text-sm text-ink-muted">for your club</span>
         </div>
         <p className="mt-1.5 text-xs text-ink-muted">
-          Drops with a cause are pinned to the top of the feed. Add a goal to show a progress bar
-          of confirmed payments.
+          How much your club wants to raise from this drop. Shows a progress bar of confirmed
+          payments.
         </p>
         <FieldError message={showErrors ? errors.goal : undefined} />
       </div>
@@ -1198,7 +1204,6 @@ function ListingRow({
             compact
             goal={Number(listing.goal_amount)}
             raised={listing.goal_raised ?? 0}
-            label={listing.cause_name}
             className="mt-2 w-64 max-w-full"
           />
         )}
