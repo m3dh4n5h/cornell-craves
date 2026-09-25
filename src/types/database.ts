@@ -585,7 +585,8 @@ export type Order = {
   items_json: OrderItem[];
   total: number;
   payment_method: PaymentMethod;
-  payment_details_json: { venmo?: string; zelle?: string };
+  /** `note` carries "cash at table" on a walk-up sale (migration 060). */
+  payment_details_json: { venmo?: string; zelle?: string; note?: string };
   payment_verified: boolean;
   status: OrderStatus;
   proxy_name: string | null;
@@ -1044,7 +1045,7 @@ type OrderInsert = {
   items_json?: OrderItem[];
   total: number;
   payment_method: PaymentMethod;
-  payment_details_json?: { venmo?: string; zelle?: string };
+  payment_details_json?: { venmo?: string; zelle?: string; note?: string };
   payment_verified?: boolean;
   status?: OrderStatus;
   proxy_name?: string | null;

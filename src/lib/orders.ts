@@ -8,6 +8,7 @@ import type {
   OrderStatus,
   OrderType,
   PickupWindowSummary,
+  SameDayStock,
   PickupType,
 } from "@/types/database";
 
@@ -140,9 +141,18 @@ export interface ItemDemandRow {
   confirmed: number;
   /** Units behind orders that are placed but not paid/verified yet. */
   pending: number;
+  /** Ordered units: confirmed + pending. Excludes the same-day pile. */
   total: number;
   confirmedRevenue: number;
   pendingRevenue: number;
+  /**
+   * Units the club plans to carry to its same-day tables (migration 060),
+   * summed across every spot. This is stock to BUY, not stock anyone ordered,
+   * so it is kept apart from `total` and only joined at `toBuy`.
+   */
+  sameDay: number;
+  /** What to actually purchase: ordered units plus the same-day pile. */
+  toBuy: number;
 }
 
 export interface DropDemand {
@@ -152,19 +162,36 @@ export interface DropDemand {
   totalUnits: number;
   confirmedRevenue: number;
   pendingRevenue: number;
+  /** Same-day units to bring, summed across items and spots. */
+  sameDayUnits: number;
+  /** Everything to buy for this drop: ordered units plus the same-day pile. */
+  toBuyUnits: number;
+  /** Units already sold at a table, drawn from the same-day pile. */
+  walkUpUnits: number;
+  /** Money taken at the table, already collected and already handed over. */
+  walkUpRevenue: number;
   /** Solo orders counted (cancelled excluded). */
   orderCount: number;
   /** Split groups counted (canceled excluded). */
   splitCount: number;
+  /** Sales recorded at a table (migration 060). */
+  walkUpCount: number;
 }
 
-type DemandOrder = Pick<Order, "status" | "payment_verified" | "items_json">;
+type DemandOrder = Pick<Order, "status" | "payment_verified" | "items_json" | "walk_up">;
 type DemandGroup = Pick<
   GroupDetails,
   "item_name" | "item_price" | "share_amount" | "status" | "members"
 >;
 
-export function summarizeDropDemand(orders: DemandOrder[], groups: DemandGroup[]): DropDemand {
+/** Same-day units per item, summed over spots, from the same_day_stock RPC. */
+export type SameDayPile = Pick<SameDayStock, "item_name" | "quantity">;
+
+export function summarizeDropDemand(
+  orders: DemandOrder[],
+  groups: DemandGroup[],
+  sameDay: SameDayPile[] = [],
+): DropDemand {
   const rows = new Map<string, ItemDemandRow>();
   const bump = (name: string, units: number, revenue: number, confirmed: boolean) => {
     if (units <= 0) return;
@@ -175,6 +202,8 @@ export function summarizeDropDemand(orders: DemandOrder[], groups: DemandGroup[]
       total: 0,
       confirmedRevenue: 0,
       pendingRevenue: 0,
+      sameDay: 0,
+      toBuy: 0,
     };
     if (confirmed) {
       row.confirmed += units;
@@ -188,8 +217,24 @@ export function summarizeDropDemand(orders: DemandOrder[], groups: DemandGroup[]
   };
 
   let orderCount = 0;
+  let walkUpCount = 0;
+  let walkUpUnits = 0;
+  let walkUpRevenue = 0;
   for (const order of orders) {
     if (order.status === "cancelled") continue;
+    // A walk-up (migration 060) was sold OUT OF the same-day pile the club
+    // already bought and already carried to the table. Counting it as demand
+    // would tell the club to go buy another box of something it has just
+    // handed over, so it is tracked separately and never reaches `bump`.
+    if (order.walk_up) {
+      walkUpCount += 1;
+      for (const line of order.items_json ?? []) {
+        const qty = Number(line.qty) || 0;
+        walkUpUnits += qty;
+        walkUpRevenue += Number(line.price) * qty;
+      }
+      continue;
+    }
     orderCount += 1;
     for (const line of order.items_json ?? []) {
       const qty = Number(line.qty) || 0;
@@ -217,8 +262,29 @@ export function summarizeDropDemand(orders: DemandOrder[], groups: DemandGroup[]
     bump(group.item_name, units, settled ? collected : Number(group.item_price), settled);
   }
 
+  // The same-day pile: stock to buy that nobody ordered. Items that ONLY
+  // appear here (a club bringing something it takes no pre-orders for) still
+  // need a row, or they would be missing from the shopping list entirely.
+  for (const pile of sameDay) {
+    const quantity = Number(pile.quantity) || 0;
+    if (quantity <= 0) continue;
+    const row = rows.get(pile.item_name) ?? {
+      name: pile.item_name,
+      confirmed: 0,
+      pending: 0,
+      total: 0,
+      confirmedRevenue: 0,
+      pendingRevenue: 0,
+      sameDay: 0,
+      toBuy: 0,
+    };
+    row.sameDay += quantity;
+    rows.set(pile.item_name, row);
+  }
+  for (const row of rows.values()) row.toBuy = row.total + row.sameDay;
+
   const list = [...rows.values()].sort(
-    (a, b) => b.total - a.total || a.name.localeCompare(b.name),
+    (a, b) => b.toBuy - a.toBuy || a.name.localeCompare(b.name),
   );
   return {
     rows: list,
@@ -227,8 +293,13 @@ export function summarizeDropDemand(orders: DemandOrder[], groups: DemandGroup[]
     totalUnits: list.reduce((sum, row) => sum + row.total, 0),
     confirmedRevenue: list.reduce((sum, row) => sum + row.confirmedRevenue, 0),
     pendingRevenue: list.reduce((sum, row) => sum + row.pendingRevenue, 0),
+    sameDayUnits: list.reduce((sum, row) => sum + row.sameDay, 0),
+    toBuyUnits: list.reduce((sum, row) => sum + row.toBuy, 0),
+    walkUpUnits,
+    walkUpRevenue,
     orderCount,
     splitCount,
+    walkUpCount,
   };
 }
 
@@ -238,16 +309,38 @@ export function demandToText(
   demand: DropDemand,
   scope: "all" | "confirmed",
 ): string {
+  // The copied list is what someone reads out at the counter, so the same-day
+  // pile has to be in the number they say out loud, not a footnote under it.
+  const orderedOf = (row: ItemDemandRow) => (scope === "confirmed" ? row.confirmed : row.total);
   const lines = [
     `${title} — what to buy`,
     scope === "confirmed" ? "Verified (paid) orders only" : "Every order placed, paid or not",
+    ...(demand.sameDayUnits > 0 ? ["Includes stock to sell at the table"] : []),
     "",
     ...demand.rows
-      .map((row) => ({ name: row.name, qty: scope === "confirmed" ? row.confirmed : row.total }))
+      .map((row) => ({
+        name: row.name,
+        qty: orderedOf(row) + row.sameDay,
+        ordered: orderedOf(row),
+        sameDay: row.sameDay,
+      }))
       .filter((row) => row.qty > 0)
-      .map((row) => `${row.qty}x ${row.name}`),
+      .map((row) =>
+        row.sameDay > 0
+          ? `${row.qty}x ${row.name}  (${row.ordered} ordered + ${row.sameDay} for the table)`
+          : `${row.qty}x ${row.name}`,
+      ),
   ];
-  const total = scope === "confirmed" ? demand.confirmedUnits : demand.totalUnits;
+  const ordered = scope === "confirmed" ? demand.confirmedUnits : demand.totalUnits;
+  const total = ordered + demand.sameDayUnits;
   lines.push("", `Total: ${total} ${total === 1 ? "item" : "items"}`);
+  if (demand.sameDayUnits > 0) {
+    lines.push(`  ${ordered} ordered ahead, ${demand.sameDayUnits} to sell at the table`);
+  }
+  if (demand.walkUpUnits > 0) {
+    lines.push(
+      `  (${demand.walkUpUnits} already sold at the table, not counted again above)`,
+    );
+  }
   return lines.join("\n");
 }

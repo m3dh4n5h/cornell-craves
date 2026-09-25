@@ -86,10 +86,16 @@ export function DropPurchaseList({
     window.setTimeout(cleanup, 1000);
   };
 
-  const qtyOf = (row: DropDemand["rows"][number]) =>
+  // What students ordered ahead, under the chosen scope.
+  const orderedOf = (row: DropDemand["rows"][number]) =>
     scope === "confirmed" ? row.confirmed : row.total;
+  // What to actually buy: ordered units plus the pile the club carries to its
+  // same-day tables. The same-day pile is never "unverified" - it is a
+  // decision the club already made - so it counts under both scopes.
+  const qtyOf = (row: DropDemand["rows"][number]) => orderedOf(row) + row.sameDay;
   const rows = demand.rows.filter((row) => qtyOf(row) > 0);
-  const totalUnits = scope === "confirmed" ? demand.confirmedUnits : demand.totalUnits;
+  const orderedUnits = scope === "confirmed" ? demand.confirmedUnits : demand.totalUnits;
+  const totalUnits = orderedUnits + demand.sameDayUnits;
   const money = scope === "confirmed" ? demand.confirmedRevenue : demand.confirmedRevenue + demand.pendingRevenue;
   const activeScope = SCOPES.find((entry) => entry.id === scope)!;
 
@@ -121,8 +127,9 @@ export function DropPurchaseList({
           <span className="hidden text-sm font-bold print:block">{title}</span>
           <span className="block text-sm font-bold">What to buy</span>
           <span className="block text-xs text-ink-muted">
-            {demand.totalUnits} {demand.totalUnits === 1 ? "item" : "items"} across{" "}
+            {demand.toBuyUnits} {demand.toBuyUnits === 1 ? "item" : "items"} across{" "}
             {demand.rows.length} {demand.rows.length === 1 ? "kind" : "kinds"}
+            {demand.sameDayUnits > 0 && `, incl. ${demand.sameDayUnits} for the table`}
             {demand.pendingUnits > 0 && `, ${demand.pendingUnits} not verified yet`}
           </span>
         </span>
@@ -180,6 +187,15 @@ export function DropPurchaseList({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block break-words text-sm font-semibold">{row.name}</span>
+                      {row.sameDay > 0 && (
+                        <span className="block text-xs text-ink-muted">
+                          {orderedOf(row)} ordered ahead
+                          {" · "}
+                          <span className="font-semibold text-ink">
+                            {row.sameDay} to sell at the table
+                          </span>
+                        </span>
+                      )}
                       {scope === "all" && row.pending > 0 && (
                         <span className="block text-xs text-ink-muted">
                           {row.confirmed} verified
@@ -193,7 +209,15 @@ export function DropPurchaseList({
               </ul>
 
               <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Figure label="Items to buy" value={String(totalUnits)} />
+                <Figure
+                  label="Items to buy"
+                  value={String(totalUnits)}
+                  sub={
+                    demand.sameDayUnits > 0
+                      ? `${orderedUnits} ordered + ${demand.sameDayUnits} for the table`
+                      : undefined
+                  }
+                />
                 <Figure label="Distinct items" value={String(rows.length)} />
                 <Figure
                   label="Orders"
@@ -205,6 +229,17 @@ export function DropPurchaseList({
                   value={formatPrice(money)}
                 />
               </dl>
+
+              {demand.walkUpCount > 0 && (
+                <p className="mt-2 rounded-xl bg-surface-raised px-3 py-2 text-xs text-ink-muted">
+                  <span className="font-semibold text-ink">
+                    {demand.walkUpUnits} already sold at the table
+                  </span>{" "}
+                  across {demand.walkUpCount} {demand.walkUpCount === 1 ? "sale" : "sales"} (
+                  {formatPrice(demand.walkUpRevenue)}). Those came out of the stock above, so they
+                  are not added to what you buy.
+                </p>
+              )}
 
               <div data-print-hide className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>

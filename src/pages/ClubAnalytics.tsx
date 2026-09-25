@@ -28,6 +28,8 @@ interface VerifiedOrder {
   orderer_email: string;
   recommended_by: string | null;
   created_at: string;
+  /** Sold at the table rather than pre-ordered (migration 060). */
+  walk_up: boolean;
 }
 
 interface ViewRow {
@@ -110,7 +112,7 @@ export default function ClubAnalytics() {
               supabase
                 .from("orders")
                 .select(
-                  "listing_id, total, items_json, orderer_name, orderer_email, recommended_by, created_at",
+                  "listing_id, total, items_json, orderer_name, orderer_email, recommended_by, created_at, walk_up",
                 )
                 .in("listing_id", ids)
                 .eq("payment_verified", true),
@@ -198,7 +200,30 @@ export default function ClubAnalytics() {
       }
     };
 
+    // Same-day sales, tracked alongside pre-orders rather than folded into
+    // them: the club wants to know which channel actually earned.
+    let walkUpRevenue = 0;
+    let walkUpUnits = 0;
+    let walkUpCount = 0;
+
     for (const order of inRange) {
+      // A walk-up has no identified buyer. An anonymous one is stored under
+      // the club's own address (orderer_email is NOT NULL), so counting it as
+      // a person would list the club as its own top customer and make every
+      // cash sale look like one loyal repeat buyer. Its MONEY and UNITS are
+      // real and count everywhere; only its identity is skipped.
+      if (order.walk_up) {
+        walkUpCount += 1;
+        walkUpRevenue += Number(order.total);
+        bumpListing(order.listing_id, Number(order.total), 1);
+        for (const line of order.items_json ?? []) {
+          bumpItem(line.name, Number(line.qty), Number(line.price) * Number(line.qty));
+          bumpTags(order.listing_id, line.name, Number(line.qty));
+          unitsInRange += Number(line.qty);
+          walkUpUnits += Number(line.qty);
+        }
+        continue;
+      }
       const key = `email:${order.orderer_email.toLowerCase()}`;
       buyers.add(key);
       bumpBuyer(key, order.orderer_name, Number(order.total));
@@ -264,7 +289,10 @@ export default function ClubAnalytics() {
     const newBuyers = buyers.size - returningBuyers;
 
     // Views -> orders: how much of the browsing actually converts to money.
-    const orderEvents = orderCount + groupShareCount;
+    // Walk-ups are excluded: nobody browsed the listing to buy a doughnut from
+    // a table they walked past, so counting them here would inflate the rate
+    // with sales the feed never produced.
+    const orderEvents = orderCount - walkUpCount + groupShareCount;
     const conversion = viewsInRange.length > 0 ? orderEvents / viewsInRange.length : null;
 
     // Each unit ordered is one box, so units sold == boxes sold (no fraction).
@@ -352,6 +380,10 @@ export default function ClubAnalytics() {
     return {
       totalRevenue,
       groupRevenue,
+      walkUpRevenue,
+      walkUpUnits,
+      walkUpCount,
+      preOrderRevenue: totalRevenue - walkUpRevenue,
       orderCount,
       avgOrderValue,
       avgUnitsPerOrder,
@@ -441,9 +473,11 @@ export default function ClubAnalytics() {
               label="Orders"
               value={String(computed.orderCount)}
               sub={
-                computed.orderCount > 0
-                  ? `${computed.avgUnitsPerOrder.toFixed(1)} items per order on average`
-                  : `last ${range} days`
+                computed.walkUpCount > 0
+                  ? `${computed.orderCount - computed.walkUpCount} pre-ordered, ${computed.walkUpCount} at the table`
+                  : computed.orderCount > 0
+                    ? `${computed.avgUnitsPerOrder.toFixed(1)} items per order on average`
+                    : `last ${range} days`
               }
             />
             <StatCard
@@ -466,9 +500,27 @@ export default function ClubAnalytics() {
               sub={
                 computed.conversion === null
                   ? "no listing views yet"
-                  : `of ${computed.totalViews} listing views became orders`
+                  : `of ${computed.totalViews} listing views became pre-orders`
               }
             />
+            {computed.walkUpCount > 0 && (
+              <StatCard
+                label="Same-day sales"
+                value={formatPrice(computed.walkUpRevenue)}
+                sub={`${computed.walkUpUnits} ${computed.walkUpUnits === 1 ? "item" : "items"} over ${computed.walkUpCount} ${computed.walkUpCount === 1 ? "sale" : "sales"} at the table`}
+              />
+            )}
+            {computed.walkUpCount > 0 && (
+              <StatCard
+                label="Pre-order revenue"
+                value={formatPrice(computed.preOrderRevenue)}
+                sub={`${
+                  computed.totalRevenue > 0
+                    ? Math.round((computed.preOrderRevenue / computed.totalRevenue) * 100)
+                    : 0
+                }% of everything you took`}
+              />
+            )}
             <StatCard
               label="Avg rating"
               value={computed.avgRating === null ? "n/a" : computed.avgRating.toFixed(1)}

@@ -1,5 +1,5 @@
 import { csvEscape } from "@/lib/csv";
-import type { ClubOrderPickup, GroupDetails, Order } from "@/types/database";
+import type { ClubOrderPickup, GroupDetails, Order, SameDayStock } from "@/types/database";
 
 /**
  * The club's orders export.
@@ -98,6 +98,12 @@ const COLUMNS = [
   "booked_window",
   "booked_location",
   "booked_quantity",
+  // Same-day stock reconciliation (migration 060). Populated only on
+  // `same_day_stock` rows; blank everywhere else so they never mix with the
+  // per-person columns above.
+  "same_day_brought",
+  "same_day_sold",
+  "same_day_left",
 ] as const;
 
 /** Group states, spelled out and prefixed so a box row never reads like a
@@ -316,6 +322,27 @@ function splitShareLine(
   };
 }
 
+/** A same-day pile at one table: brought, sold, left. Counts, not money. */
+function sameDayStockLine(row: SameDayStock, listingTitle: string): Line {
+  return {
+    cells: {
+      line_kind: "same_day_stock",
+      listing: listingTitle,
+      name: `Same-day stock — ${row.item_name}`,
+      group_item: row.item_name,
+      sale_channel: "same_day_stock",
+      pickup_spot: row.location_name,
+      amount_due: "0.00",
+      amount_paid: "0.00",
+      payment_status: "not_a_payment",
+      same_day_brought: String(row.quantity),
+      same_day_sold: String(row.sold),
+      same_day_left: String(row.remaining),
+    },
+    boxes: new Map(),
+  };
+}
+
 export interface OrdersCsvResult {
   csv: string;
   /** People rows: solo orders + split shares. What the club counts as "orders". */
@@ -328,6 +355,7 @@ export function buildOrdersCsv({
   orders,
   groups,
   pickup = [],
+  sameDay = [],
   scopeListingId,
 }: {
   listings: { id: string; title: string }[];
@@ -335,6 +363,8 @@ export function buildOrdersCsv({
   groups: GroupDetails[];
   /** Per-order pickup context from get_club_order_pickup (migration 060). */
   pickup?: ClubOrderPickup[];
+  /** Same-day piles per spot, for the stock reconciliation rows. */
+  sameDay?: SameDayStock[];
   scopeListingId: string | null;
 }): OrdersCsvResult {
   const pickupByOrder = new Map(pickup.map((row) => [row.order_id, row]));
@@ -369,6 +399,15 @@ export function buildOrdersCsv({
       group.members.forEach((member, index) => {
         lines.push(splitShareLine(group, member, index, title));
       });
+    }
+    // One row per item per same-day table: what was brought, what went, what
+    // is left. These carry NO money and NO boxes, on purpose. The money is
+    // already in the walk-up order rows above and the boxes are already in
+    // the `brought` figure, so putting either here would double it in any sum
+    // over the sheet. It is a stock count that reconciles against those rows,
+    // which is what a treasurer checks at the end of the day.
+    for (const row of sameDay.filter((entry) => entry.listing_id === listingId)) {
+      lines.push(sameDayStockLine(row, title));
     }
   }
 

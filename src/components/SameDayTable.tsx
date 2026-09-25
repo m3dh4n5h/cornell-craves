@@ -72,6 +72,23 @@ export function SameDayTable({
   const here = stock.filter((row) => row.spot_id === spotId);
   const priceOf = (name: string) =>
     Number(items.find((item) => item.name === name)?.price ?? 0);
+
+  // Running totals. `sold` comes from the walk-up order rows themselves
+  // (same_day_sold), not a counter the UI keeps, so it survives a refresh and
+  // cannot drift from what the orders list and the CSV say. Money is priced
+  // off the listing for the same reason.
+  const totals = (rows: SameDayStock[]) =>
+    rows.reduce(
+      (sum, row) => ({
+        brought: sum.brought + row.quantity,
+        sold: sum.sold + row.sold,
+        left: sum.left + row.remaining,
+        collected: sum.collected + row.sold * priceOf(row.item_name),
+      }),
+      { brought: 0, sold: 0, left: 0, collected: 0 },
+    );
+  const spotTotals = totals(here);
+  const allTotals = totals(stock);
   const cartTotal = Object.entries(cart).reduce(
     (sum, [name, qty]) => sum + priceOf(name) * qty,
     0,
@@ -185,6 +202,23 @@ export function SameDayTable({
         )}
       </div>
 
+      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Brought here" value={String(spotTotals.brought)} />
+        <Stat label="Sold here" value={String(spotTotals.sold)} />
+        <Stat
+          label="Left here"
+          value={String(spotTotals.left)}
+          tone={spotTotals.left === 0 && spotTotals.brought > 0 ? "accent" : undefined}
+        />
+        <Stat label="Taken here" value={formatPrice(spotTotals.collected)} />
+      </dl>
+      {spots.length > 1 && (
+        <p className="mt-2 text-xs text-ink-muted">
+          Across all {spots.length} spots: {allTotals.sold} of {allTotals.brought} sold,{" "}
+          {allTotals.left} left, {formatPrice(allTotals.collected)} taken.
+        </p>
+      )}
+
       <ul className="mt-3 space-y-2">
         {here.map((row) => (
           <li
@@ -198,7 +232,9 @@ export function SameDayTable({
               <span className="block truncate text-sm font-semibold">{row.item_name}</span>
               <span className="block text-xs text-ink-muted">
                 {row.remaining} left of {row.quantity}
-                {row.sold > 0 ? ` · ${row.sold} sold here` : ""}
+                {row.sold > 0
+                  ? ` · ${row.sold} sold · ${formatPrice(row.sold * priceOf(row.item_name))}`
+                  : ""}
               </span>
             </span>
             {editing ? (
@@ -333,6 +369,32 @@ export function SameDayTable({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "accent";
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border/70 px-3 py-2">
+      <dt className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "mt-0.5 font-mono text-base font-extrabold tabular-nums",
+          tone === "accent" && "text-accent",
+        )}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

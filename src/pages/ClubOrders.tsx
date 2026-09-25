@@ -17,7 +17,14 @@ import { AnchoredPanel } from "@/components/ui/anchored-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ClubOrderPickup, GroupDetails, ListingItem, Order, OrderQRCode } from "@/types/database";
+import type {
+  ClubOrderPickup,
+  GroupDetails,
+  ListingItem,
+  Order,
+  OrderQRCode,
+  SameDayStock,
+} from "@/types/database";
 
 type OrderRow = Order & { order_qr_codes: OrderQRCode[] };
 type ListingLite = {
@@ -31,13 +38,17 @@ type ListingLite = {
   expires_at: string;
 };
 
-type StatusFilter = "all" | "pending_payment" | "qr_sent" | "picked_up";
+// "same_day" is not an order status - it is a channel. It sits in the same
+// row because it answers the same question the club is asking when it reaches
+// for these buttons: show me this slice of my orders.
+type StatusFilter = "all" | "pending_payment" | "qr_sent" | "picked_up" | "same_day";
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "pending_payment", label: "Needs verification" },
   { id: "qr_sent", label: "QR sent" },
   { id: "picked_up", label: "Picked up" },
+  { id: "same_day", label: "Same-day sales" },
 ];
 
 interface ScanResult {
@@ -100,16 +111,30 @@ function qrStatus(order: OrderRow): string {
 
 function OrderCard({
   order,
+  spotName,
   verifying,
   onVerify,
 }: {
   order: OrderRow;
+  /** Which table a same-day sale happened at (migration 060). */
+  spotName?: string;
   verifying: boolean;
   onVerify: () => void;
 }) {
   const status = ORDER_STATUS_META[order.status];
   return (
-    <div className="rounded-2xl border border-border bg-surface-raised p-4">
+    <div
+      className={cn(
+        "rounded-2xl border p-4",
+        // A sale made at the table is a different kind of row from a
+        // pre-order: already paid, already handed over, nothing to action.
+        // It reads as one at a glance rather than looking like a pre-order
+        // that mysteriously skipped every step.
+        order.walk_up
+          ? "border-tint-3 bg-tint-3/20"
+          : "border-border bg-surface-raised",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-bold">
@@ -120,15 +145,36 @@ function OrderCard({
               </span>
             )}
           </p>
-          <p className="truncate font-mono text-xs text-ink-muted">{order.orderer_email}</p>
+          {order.walk_up ? (
+            <p className="truncate font-mono text-xs text-ink-muted">
+              {order.walk_up_email || "No email given"}
+            </p>
+          ) : (
+            <p className="truncate font-mono text-xs text-ink-muted">{order.orderer_email}</p>
+          )}
         </div>
-        <Badge variant={status.variant}>{status.label}</Badge>
+        <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {order.walk_up && <Badge variant="success">Same-day</Badge>}
+          <Badge variant={status.variant}>{status.label}</Badge>
+        </span>
       </div>
 
       <p className="mt-2 text-sm">
         {orderItemsSummary(order.items_json)}{" "}
         <span className="font-mono font-bold">{formatPrice(Number(order.total))}</span>
       </p>
+      {order.walk_up ? (
+        <p className="mt-1 text-xs text-ink-muted">
+          Sold at the table
+          {spotName ? ` at ${spotName}` : ""}
+          {" · paid by "}
+          {order.payment_details_json.note === "cash at table"
+            ? "cash"
+            : order.payment_method === "both"
+              ? "Venmo or Zelle"
+              : order.payment_method}
+        </p>
+      ) : (
       <p className="mt-1 text-xs text-ink-muted">
         Pays via {order.payment_method === "both" ? "Venmo or Zelle" : order.payment_method}
         {order.payment_details_json.venmo && (
@@ -145,14 +191,17 @@ function OrderCard({
           </>
         )}
       </p>
+      )}
       {order.picked_up_by_name && (
         <p className="mt-1 text-xs text-ink-muted">
           Picked up by {order.picked_up_by_name} ({order.picked_up_by_email})
         </p>
       )}
       <p className="mt-1 text-[11px] text-ink-muted">
-        Ordered {fmtDateTime(order.created_at)}
-        {order.picked_up_at ? ` · Picked up ${fmtDateTime(order.picked_up_at)}` : ""}
+        {order.walk_up ? "Sold" : "Ordered"} {fmtDateTime(order.created_at)}
+        {order.picked_up_at && !order.walk_up
+          ? ` · Picked up ${fmtDateTime(order.picked_up_at)}`
+          : ""}
       </p>
 
       {order.status === "pending_payment" && (
@@ -351,6 +400,10 @@ export default function ClubOrders() {
   const [listings, setListings] = useState<ListingLite[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [groups, setGroups] = useState<GroupDetails[]>([]);
+  // Same-day piles across every drop (migration 060). Held here rather than
+  // only inside SameDayTable because the purchase list needs them too: stock
+  // the club carries to a table is stock it has to go and buy.
+  const [sameDay, setSameDay] = useState<SameDayStock[]>([]);
   const [loading, setLoading] = useState(true);
   const [listingFilter, setListingFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -391,10 +444,11 @@ export default function ClubOrders() {
 
     if (ids.length === 0) {
       setOrders([]);
+      setSameDay([]);
       setLoading(false);
       return;
     }
-    const [ordersResult, groupsResult] = await Promise.all([
+    const [ordersResult, groupsResult, sameDayResult] = await Promise.all([
       supabase
         .from("orders")
         .select("*, order_qr_codes(*)")
@@ -402,6 +456,7 @@ export default function ClubOrders() {
         .order("created_at", { ascending: false })
         .returns<OrderRow[]>(),
       supabase.rpc("get_club_groups"),
+      supabase.rpc("same_day_stock", { p_listing_ids: ids }),
     ]);
     if (ordersResult.error) {
       toast.error(ordersResult.error.message);
@@ -409,6 +464,7 @@ export default function ClubOrders() {
       setOrders(ordersResult.data ?? []);
     }
     setGroups(((groupsResult.data as unknown as GroupDetails[]) ?? []).filter(Boolean));
+    setSameDay((sameDayResult.data as unknown as SameDayStock[]) ?? []);
     setLoading(false);
   }, [userId]);
 
@@ -439,6 +495,7 @@ export default function ClubOrders() {
 
   const filtered = orders.filter((order) => {
     if (listingFilter && order.listing_id !== listingFilter) return false;
+    if (statusFilter === "same_day") return order.walk_up;
     if (statusFilter !== "all" && order.status !== statusFilter) return false;
     return true;
   });
@@ -464,6 +521,10 @@ export default function ClubOrders() {
           group.members.length > 0 &&
           group.members.every((member) => Boolean(member.scanned_at))
         );
+      // A split is by definition a pre-order, so no group is ever a same-day
+      // sale and the filter hides all of them rather than showing every one.
+      case "same_day":
+        return false;
       default:
         return true;
     }
@@ -482,6 +543,7 @@ export default function ClubOrders() {
       demand: summarizeDropDemand(
         orders.filter((order) => order.listing_id === listing.id),
         groups.filter((group) => group.listing_id === listing.id),
+        sameDay.filter((row) => row.listing_id === listing.id),
       ),
     }))
     // A drop selling at the table keeps its section even with no orders yet:
@@ -646,6 +708,9 @@ export default function ClubOrders() {
       orders,
       groups,
       pickup: (pickupData as unknown as ClubOrderPickup[]) ?? [],
+      sameDay: scopeListingId
+        ? sameDay.filter((row) => row.listing_id === scopeListingId)
+        : sameDay,
       scopeListingId,
     });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -894,7 +959,7 @@ export default function ClubOrders() {
 
                 {open && (
                   <div className="space-y-3 px-3 pb-3">
-                    {demand.totalUnits > 0 && (
+                    {demand.toBuyUnits > 0 && (
                       <DropPurchaseList title={listing.title} demand={demand} />
                     )}
                     {/* Bulk split controls: act on every split group on this drop
@@ -943,6 +1008,12 @@ export default function ClubOrders() {
                       <OrderCard
                         key={order.id}
                         order={order}
+                        spotName={
+                          order.pickup_spot_id
+                            ? sameDay.find((row) => row.spot_id === order.pickup_spot_id)
+                                ?.location_name
+                            : undefined
+                        }
                         verifying={verifyingId === order.id}
                         onVerify={() => void verifyPayment(order)}
                       />
