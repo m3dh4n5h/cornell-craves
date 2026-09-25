@@ -788,11 +788,24 @@ function ListingForm({
             .map((name) => ({ name, quantity: Number.parseInt(spot.sameDay[name] ?? "", 10) }))
             .filter((row) => Number.isFinite(row.quantity) && row.quantity > 0)
         : [];
-      const { error: clearError } = await supabase
-        .from("listing_same_day_stock")
-        .delete()
-        .eq("spot_id", spotId)
-        .not("item_name", "in", `(${stockRows.map((row) => `"${row.name.replace(/"/g, '""')}"`).join(",") || '""'})`);
+      // Drop rows for items no longer carried here (renamed, removed, zeroed,
+      // or the whole feature switched off). Split in two rather than leaning
+      // on a `not in ("")` list, because an empty PostgREST value list is a
+      // quirk to depend on and "delete everything for this spot" is the exact
+      // thing meant when nothing is carried.
+      const clear =
+        stockRows.length > 0
+          ? supabase
+              .from("listing_same_day_stock")
+              .delete()
+              .eq("spot_id", spotId)
+              .not(
+                "item_name",
+                "in",
+                `(${stockRows.map((row) => `"${row.name.replace(/"/g, '""')}"`).join(",")})`,
+              )
+          : supabase.from("listing_same_day_stock").delete().eq("spot_id", spotId);
+      const { error: clearError } = await clear;
       if (clearError) return clearError.message;
       if (stockRows.length > 0) {
         const { error } = await supabase.from("listing_same_day_stock").upsert(
@@ -1181,7 +1194,8 @@ function ListingForm({
           placeholder="club-officer@cornell.edu"
         />
         <p className="mt-1.5 text-xs text-ink-muted">
-          Shown on this listing so buyers can reach you about it. Enter it fresh for each drop.
+          Shown on this listing so buyers can reach you about it. Prefilled from your account
+          settings; change it here if a different person is running this drop.
         </p>
         <FieldError message={showErrors ? errors.contactEmail : undefined} />
       </div>
@@ -1190,6 +1204,33 @@ function ListingForm({
         <Label>Items, prices, dietary tags</Label>
         <ItemsEditor items={items} onChange={setItems} />
         <FieldError message={showErrors ? errors.items : undefined} />
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={sameDayEnabled}
+            onChange={(e) => setSameDayEnabled(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
+          />
+          <span>
+            <span className="block text-sm font-semibold">
+              Sell at the table on the day (same-day stock)
+            </span>
+            <span className="block text-xs text-ink-muted">
+              Track how many of each item you are carrying to each table. Walk-up sales get
+              recorded on your Orders page and count toward your revenue and goal, the same as a
+              pre-order. Separate from the pre-order limits you set on each item above.
+            </span>
+          </span>
+        </label>
+        {sameDayEnabled && (
+          <p className="mt-2 text-xs text-ink-muted">
+            Enter the counts on each pickup spot below. A spot needs to accept walk-ups before it
+            can carry stock.
+          </p>
+        )}
       </div>
 
       <div className="mt-5">
@@ -1231,38 +1272,6 @@ function ListingForm({
             setSpots((previous) => previous.filter((spot) => spot.locationId !== locationId))
           }
         />
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-border/70 p-3.5">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={sameDayEnabled}
-            onChange={(e) => setSameDayEnabled(e.target.checked)}
-            className="mt-0.5 size-5 shrink-0 accent-(--color-primary-dark)"
-          />
-          <span>
-            <span className="block text-sm font-semibold">
-              Sell at the table on the day (same-day stock)
-            </span>
-            <span className="block text-xs text-ink-muted">
-              Track how many of each item you are carrying to each same-day spot. Walk-up sales get
-              recorded on your Orders page and count toward your revenue and goal, the same as a
-              pre-order. Separate from the pre-order limits you set on each item above.
-            </span>
-          </span>
-        </label>
-        {sameDayEnabled && itemNames.length === 0 && (
-          <p className="mt-2 text-xs text-ink-muted">Add an item above and the counts appear on each same-day spot.</p>
-        )}
-        {sameDayEnabled &&
-          itemNames.length > 0 &&
-          !spots.some((spot) => spot.orderType === "same_day" || spot.orderType === "both") && (
-            <p className="mt-2 text-xs text-ink-muted">
-              No spot takes walk-ups yet. Set one to "Same-day pickup" or "Pre-order &amp; same-day"
-              above to enter its counts.
-            </p>
-          )}
       </div>
 
       <div className="mt-5">

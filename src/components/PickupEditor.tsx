@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertTriangle, CalendarPlus, MapPinPlus, Plus, X } from "lucide-react";
+import { AlertTriangle, CalendarPlus, MapPinPlus, Plus, Store, X } from "lucide-react";
 import { LocationCombobox } from "@/components/LocationCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -480,7 +480,6 @@ function SpotCard({
   onRemove: () => void;
 }) {
   const takesWalkUps = spot.orderType === "same_day" || spot.orderType === "both";
-  const showSameDay = sameDayEnabled && takesWalkUps && itemNames.length > 0;
   const bookedHere = spot.windows.some((window) =>
     window.slots.some((slot) => slot.reserved > 0),
   );
@@ -585,34 +584,70 @@ function SpotCard({
         </Button>
       </div>
 
-      {showSameDay && (
+      {/* Once the drop sells at the table, this block is ALWAYS rendered on
+          every spot. It used to appear only when the spot already took
+          walk-ups and items already existed, which meant a club that turned
+          the feature on and looked at a pre-order spot saw nothing at all and
+          had no way to find out why. Each dead end now says what it is and
+          offers the one control that fixes it. */}
+      {sameDayEnabled && (
         <div className="mt-3 rounded-xl border border-border/70 bg-surface p-3">
           <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
             Same-day stock at this spot
           </p>
-          <p className="mt-1 text-[11px] text-ink-muted">
-            How many you are carrying here to sell on the day. Separate from pre-order limits, and
-            you can change it from your Orders page while the table is running.
-          </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {itemNames.map((name) => (
-              <label key={name} className="flex items-center gap-2">
-                <Input
-                  value={spot.sameDay[name] ?? ""}
-                  onChange={(e) =>
-                    onChange({
-                      sameDay: { ...spot.sameDay, [name]: e.target.value.replace(/[^\d]/g, "") },
-                    })
-                  }
-                  inputMode="numeric"
-                  placeholder="0"
-                  aria-label={`Same-day units of ${name} at spot ${index + 1}`}
-                  className="h-9 w-20 font-mono text-sm"
-                />
-                <span className="min-w-0 truncate text-sm">{name}</span>
-              </label>
-            ))}
-          </div>
+
+          {!takesWalkUps ? (
+            <>
+              <p className="mt-1 text-[11px] text-ink-muted">
+                This spot is pre-order only, so nothing is sold here on the day. Let it take
+                walk-ups and the counts appear.
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                onClick={() => onChange({ orderType: "both" })}
+              >
+                <Store className="size-4" aria-hidden="true" />
+                Take walk-ups here too
+              </Button>
+            </>
+          ) : itemNames.length === 0 ? (
+            <p className="mt-1 text-[11px] text-ink-muted">
+              Add an item with a name under "Items, prices, dietary tags" above, and a box for it
+              appears here.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-[11px] text-ink-muted">
+                How many you are carrying here to sell on the day. Separate from pre-order limits,
+                and you can change it from your Orders page while the table is running.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {itemNames.map((name) => (
+                  <label key={name} className="flex items-center gap-2">
+                    <Input
+                      value={spot.sameDay[name] ?? ""}
+                      onChange={(e) =>
+                        onChange({
+                          sameDay: { ...spot.sameDay, [name]: e.target.value.replace(/[^\d]/g, "") },
+                        })
+                      }
+                      inputMode="numeric"
+                      placeholder="0"
+                      aria-label={`Same-day units of ${name} at spot ${index + 1}`}
+                      className="h-9 w-20 font-mono text-sm"
+                    />
+                    <span className="min-w-0 truncate text-sm">{name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-ink-muted">
+                Leave a box blank or at 0 for anything you are not selling at this table.
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

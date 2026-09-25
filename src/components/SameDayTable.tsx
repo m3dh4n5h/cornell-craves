@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Check, Minus, Plus, Store } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -164,13 +165,27 @@ export function SameDayTable({
   }
 
   if (spots.length === 0) {
+    // Reached whenever the drop has no stock rows. The two reasons are very
+    // different and the club cannot tell them apart from the outside, so name
+    // both and, where a link can fix it, give the link.
     return (
       <div className="rounded-2xl border border-dashed border-border p-4">
-        <p className="text-sm font-semibold">No same-day stock set for this drop</p>
+        <p className="text-sm font-semibold">Nothing to sell at the table yet</p>
         <p className="mt-1 text-xs text-ink-muted">
-          Edit the listing, turn on "Sell at the table on the day", and enter how many of each item
-          you are carrying to each same-day spot.
+          Counts are entered per spot on the listing itself. Open the drop for editing and, on each
+          pickup spot you will be at, set <strong>Ordering here</strong> to "Same-day pickup" or
+          "Pre-order &amp; same-day". A "Same-day stock at this spot" box appears on that spot with
+          one field per item.
         </p>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          A spot left as "Pre-order only" carries no stock, which is the usual reason this is
+          empty.
+        </p>
+        <Link to="/dashboard">
+          <Button type="button" variant="secondary" size="sm" className="mt-2.5">
+            Edit this drop on your dashboard
+          </Button>
+        </Link>
       </div>
     );
   }
