@@ -207,10 +207,14 @@ function b64urlEncode(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-function b64urlDecode(value: string): Uint8Array {
+function b64urlDecode(value: string): Uint8Array<ArrayBuffer> {
   const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
   const binary = atob(padded);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  // Backed by a plain ArrayBuffer so it satisfies crypto.subtle's BufferSource
+  // under current TypeScript lib typings (Uint8Array<ArrayBufferLike> does not).
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 async function hmacKey(): Promise<CryptoKey> {

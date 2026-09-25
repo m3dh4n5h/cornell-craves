@@ -20,6 +20,9 @@ node supabase/tests/split-attack.mjs   # expect: 41 passed, 0 failed
 node supabase/tests/split-lifecycle.mjs # expect: 126 passed, 0 failed
 node supabase/tests/stock-goals.mjs    # expect: 46 passed, 0 failed
 node supabase/tests/pickup-calendar.mjs # expect: 13 passed, 0 failed
+node supabase/tests/insights.mjs        # expect: 12 passed, 0 failed
+node supabase/tests/contract.mjs        # expect: 559 passed, 0 failed
+node supabase/tests/payload-shape.mjs   # expect: 70 passed, 0 failed
 ```
 
 Every statement in the simulation mirrors an actual client call (same columns,
@@ -97,3 +100,25 @@ fails here.
 Every guard is asserted against the database rather than the UI, because
 `AdminRoster.tsx` only hides buttons; `is_owner()` is what actually stops
 someone calling the RPC by hand.
+
+`contract.mjs` is the frontend <-> backend wiring check. The TypeScript types in
+`src/types/database.ts` are hand-written, so `tsc` cannot tell you that a column
+was renamed or an RPC argument dropped. This script statically extracts every
+`.from("table")` chain (select columns, embedded relations, filters, order,
+insert/update/upsert keys), every `.rpc("fn", { args })` call and every
+`functions.invoke` action from `src/` and the edge function, then checks each
+one against the schema the migrations actually produce: table and column exist,
+embedded relations have a real foreign key, the RPC has an overload whose named
+parameters match the keys the client sends (and every parameter without a
+default is sent), the caller's role may EXECUTE it, and the two RPCs that
+signed-out pages call (`get_group_by_token`, `track_event`) are granted to anon
+while `process_group_deadlines` and `group_payload` are not exposed to anyone.
+It also reports (as INFO) RPCs the VITE_MOCK preview has no handler for.
+
+`payload-shape.mjs` is the other direction: it drives real scenarios (a split
+group from creation to fully paid and reactivated, a solo order with a proxy, a
+reservation, the club and admin dashboards) and compares the JSON each RPC
+returns against both the declared TypeScript type (every non-optional field must
+be present) and the property names the pages actually dereference on that
+payload, which is the stricter contract since a missing key renders as
+"undefined" rather than failing a build.

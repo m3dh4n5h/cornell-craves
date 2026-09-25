@@ -81,7 +81,14 @@ export default function AccountSettings() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!profile || hydrated) return;
+    if (hydrated || profileLoading) return;
+    // A signed-in account with no users_extended row (roster admin, or a
+    // profile row that was deleted) must still get the form instead of an
+    // endless skeleton: hydrate with empty fields and let them save one.
+    if (!profile) {
+      setHydrated(true);
+      return;
+    }
     setFirstName(profile.first_name);
     setLastName(profile.last_name);
     setNetid(profile.cornell_netid ?? "");
@@ -92,7 +99,7 @@ export default function AccountSettings() {
     setBrands(profile.preferences_json?.brands ?? []);
     setDietary(profile.preferences_json?.dietary ?? []);
     setHydrated(true);
-  }, [profile, hydrated]);
+  }, [profile, profileLoading, hydrated]);
 
   // The cravings table is authoritative for brands; reconcile so this tab and
   // the Cravings page never drift, even for picks saved before they synced (#18).
