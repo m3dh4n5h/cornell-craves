@@ -178,11 +178,21 @@ export function DropPurchaseList({
                 {rows.map((row) => (
                   <li
                     key={row.name}
-                    className="flex items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0"
+                    className="flex items-center gap-4 border-b border-border/60 px-3 py-2.5 last:border-b-0"
                   >
                     {/* The number leads: it is the one thing being read off at
-                        the counter. Tabular figures keep the column straight. */}
-                    <span className="w-12 shrink-0 text-right font-mono text-xl font-extrabold tabular-nums sm:w-14 sm:text-2xl">
+                        the counter. Tabular figures keep the column straight.
+                        min-w, never a fixed w: this design system redefines
+                        --text-2xl as clamp(1.75rem, 4vw, 2.5rem), so at a wide
+                        viewport these digits render at 40px and a three-figure
+                        count is ~72px wide. Inside a fixed 56px box the line
+                        overflows, and once content is wider than its box
+                        text-align stops applying, so the digits started at the
+                        left edge and ran straight over the item name
+                        ("102Bread Rolls"). A minimum keeps the column aligned
+                        for the common one- and two-digit case while letting
+                        three and four figures take the room they need. */}
+                    <span className="min-w-12 shrink-0 text-right font-mono text-xl font-extrabold tabular-nums sm:min-w-14 sm:text-2xl">
                       {qtyOf(row)}
                     </span>
                     <span className="min-w-0 flex-1">
