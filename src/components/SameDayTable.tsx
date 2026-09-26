@@ -337,7 +337,7 @@ export function SameDayTable({
                     type="email"
                     value={buyerEmail}
                     onChange={(e) => setBuyerEmail(e.target.value)}
-                    placeholder="For a receipt"
+                    placeholder="Any address, gmail is fine"
                     className="h-9 text-sm"
                   />
                 </div>

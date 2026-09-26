@@ -169,7 +169,11 @@ function orderLine(
       line_kind: "order",
       listing: listingTitle,
       name: order.orderer_name,
-      email: order.orderer_email,
+      // An anonymous walk-up carries a reserved, unusable address in
+      // orderer_email (migration 061) purely because the column is NOT NULL.
+      // Putting walk-up@sale.invalid in a column a club mail-merges from
+      // would be worse than an empty cell, so it stays empty.
+      email: order.walk_up ? (order.walk_up_email ?? "") : order.orderer_email,
       netid: order.orderer_netid ?? "",
       amount_due: cancelled ? "0.00" : money(Number(order.total)),
       amount_paid: order.payment_verified && !cancelled ? money(Number(order.total)) : "0.00",
